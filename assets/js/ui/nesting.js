@@ -2,10 +2,11 @@
 // material, with a numbered layout plan for each sheet. The optimizer runs
 // in a Web Worker so editing never stalls.
 
-import { fmtMm, materialLabel } from '../engine/model.js';
+import { materialLabel } from '../engine/model.js';
 import { nestGroup, nestGroups } from '../engine/nest.js';
-import { checkboxField, h, mount, numField, s, selectField } from './dom.js';
+import { checkboxField, h, lenField, mount, s, selectField } from './dom.js';
 import { setState, state, updateProject } from './store.js';
+import { fmtLen, fmtSize } from '../engine/units.js';
 
 let worker = null;
 let requestId = 0;
@@ -76,7 +77,7 @@ function sheetSvg(group, sheet, index) {
   const [L, W] = [m.sheetLength, m.sheetWidth];
   const fill = tint(m.color);
   const parts = sheet.parts.map((p) => {
-    const dims = `${fmtMm(p.length)} × ${fmtMm(p.width)}`;
+    const dims = `${fmtSize(p.length, p.width)}`;
     const cx = p.x + p.sizeX / 2;
     const cy = p.y + p.sizeY / 2;
     // Number always; name and size when the part is big enough to read.
@@ -114,7 +115,7 @@ function sheetSvg(group, sheet, index) {
       {},
       h('strong', {}, `Sheet ${index + 1} of ${group.sheets.length}`),
       ` · ${sheet.parts.length} parts · ${Math.round(sheet.used * 100)}% used`,
-      off.length > 0 && off.width > 0 ? ` · largest offcut ${fmtMm(off.length)} × ${fmtMm(off.width)}` : '',
+      off.length > 0 && off.width > 0 ? ` · largest offcut ${fmtSize(off.length, off.width)}` : '',
     ),
     h(
       'details',
@@ -138,8 +139,8 @@ function sheetSvg(group, sheet, index) {
               h('td', { class: 'num' }, p.number),
               h('td', {}, p.name),
               h('td', {}, p.cabinet),
-              h('td', { class: 'num' }, `${fmtMm(p.length)} × ${fmtMm(p.width)}`),
-              h('td', { class: 'num' }, `${fmtMm(p.x)}, ${fmtMm(p.y)}`),
+              h('td', { class: 'num' }, `${fmtSize(p.length, p.width)}`),
+              h('td', { class: 'num' }, `${fmtLen(p.x)}, ${fmtLen(p.y)}`),
               h('td', {}, p.rotated ? '↻ rotated' : ''),
             ),
           ),
@@ -185,8 +186,8 @@ export function renderNesting(container) {
         n.effort,
         editNesting('effort', String),
       ),
-      numField('Saw kerf / bit Ø', 'kerf', n.kerf, editNesting('kerf'), { step: 0.5 }),
-      numField('Edge trim', 'trim', n.trim, editNesting('trim'), { step: 1 }),
+      lenField('Saw kerf / bit Ø', 'kerf', n.kerf, editNesting('kerf'), { step: 0.5 }),
+      lenField('Edge trim', 'trim', n.trim, editNesting('trim'), { step: 1 }),
       checkboxField('Group identical parts', 'nestGroup', n.group, editNesting('group', Boolean)),
       h('div', { class: 'spacer' }),
       h(
@@ -223,7 +224,7 @@ export function renderNesting(container) {
           h(
             'span',
             { class: 'muted' },
-            ` · sheet ${fmtMm(g.material.sheetLength)} × ${fmtMm(g.material.sheetWidth)}` +
+            ` · sheet ${fmtSize(g.material.sheetLength, g.material.sheetWidth)}` +
               `${g.material.grain ? ' · grain along length' : ''}` +
               ` · ${g.sheets.length} sheet${g.sheets.length === 1 ? '' : 's'} · ${g.partCount} parts · ${Math.round(g.yield * 100)}% used`,
           ),
@@ -233,7 +234,7 @@ export function renderNesting(container) {
               'div',
               { class: 'error' },
               `${g.unplaced.length} part${g.unplaced.length > 1 ? 's do' : ' does'} not fit on a sheet: `,
-              g.unplaced.map((p) => `${p.name} (${p.cabinet}) ${fmtMm(p.length)} × ${fmtMm(p.width)}`).join('; '),
+              g.unplaced.map((p) => `${p.name} (${p.cabinet}) ${fmtSize(p.length, p.width)}`).join('; '),
             )
           : null,
         h(

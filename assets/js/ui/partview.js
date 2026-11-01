@@ -7,6 +7,7 @@ import { bores, edgeCode } from '../engine/part.js';
 import { jobFor } from '../engine/project.js';
 import { h, mount, s } from './dom.js';
 import { setState, state } from './store.js';
+import { fmtLen, fmtLenU, fmtSize, isImperial } from '../engine/units.js';
 
 const PURPOSE_LABELS = { system: 'System hole', hingeCup: 'Hinge cup', hingePlate: 'Hinge plate', slide: 'Drawer slide' };
 const isSide = (part) => part.role === 'leftSide' || part.role === 'rightSide';
@@ -75,7 +76,7 @@ function outlineDimensions(outline, font) {
     // The part lies to the left of each edge of a counter-clockwise outline.
     const inward = ccw ? [-(b[1] - a[1]) / len, (b[0] - a[0]) / len] : [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
     const [mx, my] = [(a[0] + b[0]) / 2 + inward[0] * font * 1.4, (a[1] + b[1]) / 2 + inward[1] * font * 1.4];
-    return s('text', { class: 'dw-muted', x: mx, y: my, 'font-size': font * 0.85, 'text-anchor': 'middle', 'dominant-baseline': 'middle' }, fmtMm(len));
+    return s('text', { class: 'dw-muted', x: mx, y: my, 'font-size': font * 0.85, 'text-anchor': 'middle', 'dominant-baseline': 'middle' }, fmtLen(len));
   });
 }
 
@@ -105,10 +106,10 @@ function drawing(part) {
   const opening = part.ops.find((op) => op.type === 'opening');
   const frameDims = opening
     ? [
-        s('text', { class: 'dw-text', x: l / 2, y: w / 2 - font * 0.3, 'font-size': font, 'text-anchor': 'middle' }, `Opening ${fmtMm(opening.length)} × ${fmtMm(opening.width)}`),
+        s('text', { class: 'dw-text', x: l / 2, y: w / 2 - font * 0.3, 'font-size': font, 'text-anchor': 'middle' }, `Opening ${fmtSize(opening.length, opening.width)}`),
         s('text', { class: 'dw-muted', x: l / 2, y: w / 2 + font, 'font-size': font * 0.8, 'text-anchor': 'middle' }, 'cut through'),
         s('line', { class: 'dw-dim', x1: l / 2, y1: 0, x2: l / 2, y2: opening.y }),
-        s('text', { class: 'dw-text', x: l / 2 + font * 0.4, y: opening.y / 2 + font * 0.35, 'font-size': font }, fmtMm(opening.y)),
+        s('text', { class: 'dw-text', x: l / 2 + font * 0.4, y: opening.y / 2 + font * 0.35, 'font-size': font }, fmtLen(opening.y)),
       ]
     : null;
   const shape = part.cornerRadius
@@ -130,7 +131,7 @@ function drawing(part) {
     bores(part).map((b) => s('circle', { class: `bore-${b.purpose}`, cx: b.x, cy: b.y, r: b.diameter / 2 })),
     cups.shapes,
     s('line', { class: 'dw-dim', x1: 0, y1: -margin * 0.45 - padTop, x2: l, y2: -margin * 0.45 - padTop }),
-    s('text', { class: 'dw-text', x: l / 2, y: -margin * 0.55 - padTop, 'font-size': font, 'text-anchor': 'middle' }, `L ${fmtMm(l)}`),
+    s('text', { class: 'dw-text', x: l / 2, y: -margin * 0.55 - padTop, 'font-size': font, 'text-anchor': 'middle' }, `L ${fmtLen(l)}`),
     s('line', { class: 'dw-dim', x1: -margin * 0.45, y1: 0, x2: -margin * 0.45, y2: w }),
     s(
       'text',
@@ -142,7 +143,7 @@ function drawing(part) {
         'text-anchor': 'middle',
         transform: `rotate(-90 ${-margin * 0.55} ${w / 2})`,
       },
-      `W ${fmtMm(w)}`,
+      `W ${fmtLen(w)}`,
     ),
     s('text', { class: 'dw-muted', x: 0, y: w + margin * 0.55 + padBottom, 'font-size': font * 0.8 }, 'x → length · y ↓ width · L1 at top edge'),
   );
@@ -256,7 +257,7 @@ function sideDrawing(cab, side, opts) {
   shapes.push(
     s('line', { class: 'dw-dim', x1: 0, y1: dimY, x2: W, y2: dimY }),
     [0, W].map((x) => s('line', { class: 'dw-dim', x1: x, y1: dimY - tick, x2: x, y2: dimY + tick })),
-    s('text', { class: 'dw-text', x: W / 2, y: dimY - font * 0.4, 'font-size': font, 'text-anchor': 'middle' }, `W ${fmtMm(W)}`),
+    s('text', { class: 'dw-text', x: W / 2, y: dimY - font * 0.4, 'font-size': font, 'text-anchor': 'middle' }, `W ${fmtLen(W)}`),
     s('line', { class: 'dw-dim', x1: dimX, y1: 0, x2: dimX, y2: L }),
     [0, L].map((y) => s('line', { class: 'dw-dim', x1: dimX - tick, y1: y, x2: dimX + tick, y2: y })),
     s(
@@ -269,7 +270,7 @@ function sideDrawing(cab, side, opts) {
         'text-anchor': 'middle',
         transform: `rotate(-90 ${lx} ${L / 2})`,
       },
-      `L ${fmtMm(L)}`,
+      `L ${fmtLen(L)}`,
     ),
   );
 
@@ -322,7 +323,7 @@ function sideDrawing(cab, side, opts) {
           'g',
           {},
           s('rect', { class: 'dw-notch', x: xa, y: Y(op.x + op.length), width: xb - xa, height: op.length }),
-          s('text', { class: 'dw-muted', x: cx, y: cy, 'font-size': font * 0.75, 'text-anchor': 'middle' }, `${fmtMm(op.width)} × ${fmtMm(op.length)}`),
+          s('text', { class: 'dw-muted', x: cx, y: cy, 'font-size': font * 0.75, 'text-anchor': 'middle' }, fmtSize(op.width, op.length)),
         );
       }),
     joined,
@@ -342,7 +343,7 @@ function sideDrawing(cab, side, opts) {
     s(
       'text',
       { class: 'dw-muted', x: W / 2, y: titleY + font * 1.4, 'font-size': font * 0.85, 'text-anchor': 'middle' },
-      `${fmtMm(L)} × ${fmtMm(W)} × ${fmtMm(side.thickness)} · inside face · heights from bottom edge, depths from front edge`,
+      `${fmtSize(L, W)} × ${fmtMm(side.thickness)}${isImperial() ? ' mm' : ''} · inside face · hole heights from bottom edge, depths from front edge${isImperial() ? ', in mm' : ''}`,
     ),
     system.length
       ? s(
@@ -402,7 +403,7 @@ function sideOps(cab, side, opts) {
       ? h(
           'table',
           { class: 'hole-table' },
-          h('thead', {}, h('tr', {}, h('th', {}, 'Bore'), ['From bottom', 'From front', 'Ø × depth'].map((t) => h('th', { class: 'num' }, t)))),
+          h('thead', {}, h('tr', {}, h('th', {}, 'Bore'), ['From bottom', 'From front', 'Ø × depth'].map((t) => h('th', { class: 'num' }, isImperial() ? `${t} (mm)` : t)))),
           h(
             'tbody',
             {},
@@ -431,27 +432,27 @@ export function renderPartView(container) {
   }
   const notes = part.ops
     .map((op) => {
-      if (op.type === 'groove') return `Groove at y ${fmtMm(op.y)} · ${fmtMm(op.width)} wide · ${fmtMm(op.depth)} deep`;
+      if (op.type === 'groove') return `Groove at y ${fmtLen(op.y)} · ${fmtLen(op.width)} wide · ${fmtLen(op.depth)} deep`;
       if (op.type === 'pocket') {
-        return `Dado at ${fmtMm(op.x)}, ${fmtMm(op.y)} · ${fmtMm(op.length)} × ${fmtMm(op.width)} · ${fmtMm(op.depth)} deep`;
+        return `Dado at ${fmtLen(op.x)}, ${fmtLen(op.y)} · ${fmtSize(op.length, op.width)} · ${fmtLen(op.depth)} deep`;
       }
       if (op.type === 'rabbet') {
-        return `Rabbet on the back around the opening · ${fmtMm(op.lip)} wide × ${fmtMm(op.depth)} deep · ${fmtMm(op.length)} × ${fmtMm(op.width)} outside`;
+        return `Rabbet on the back around the opening · ${fmtLen(op.lip)} wide × ${fmtLen(op.depth)} deep · ${fmtSize(op.length, op.width)} outside`;
       }
       if (op.type === 'opening') {
-        return `Opening cut through at ${fmtMm(op.x)}, ${fmtMm(op.y)} · ${fmtMm(op.length)} × ${fmtMm(op.width)}`;
+        return `Opening cut through at ${fmtLen(op.x)}, ${fmtLen(op.y)} · ${fmtSize(op.length, op.width)}`;
       }
       return null;
     })
     .filter(Boolean)
     .map((t) => h('p', {}, t));
-  if (part.shaker) notes.unshift(h('p', {}, `Shaker frame · ${Math.round(part.shaker.frame * 100) / 100} mm stiles and rails · inside corners take the CNC tool's radius`));
-  if (part.cornerRadius) notes.push(h('p', {}, `Shaker center panel · corners R${fmtMm(part.cornerRadius)} to fit the rabbet`));
+  if (part.shaker) notes.unshift(h('p', {}, `Shaker frame · ${isImperial() ? fmtLen(part.shaker.frame) : `${Math.round(part.shaker.frame * 100) / 100} mm`} stiles and rails · inside corners take the CNC tool's radius`));
+  if (part.cornerRadius) notes.push(h('p', {}, `Shaker center panel · corners R${fmtLenU(part.cornerRadius)} to fit the rabbet`));
   if (part.hinge?.cupCenter != null) {
     const hg = part.hinge;
     notes.push(h('p', {}, `Hinge cups at K ${fmtMm(hg.k)}: centres ${fmtMm(hg.cupCenter)} from the hinge edge · ${fmtMm(hg.plate)} mm plates`));
   }
-  const header = `${part.name} — ${fmtMm(part.length)} × ${fmtMm(part.width)} × ${fmtMm(part.thickness)}  ·  edges: ${edgeCode(part.edges) || 'none'}`;
+  const header = `${part.name} — ${fmtSize(part.length, part.width)} × ${fmtMm(part.thickness)}${isImperial() ? ' mm' : ''}  ·  edges: ${edgeCode(part.edges) || 'none'}`;
   const legend = (color, label, square = false) =>
     h('span', {}, h('i', { style: { background: `var(${color})`, borderRadius: square ? '0' : null } }), label);
 
@@ -497,7 +498,7 @@ export function renderPartView(container) {
         h(
           'table',
           {},
-          h('thead', {}, h('tr', {}, h('th', {}, 'Bore'), ['x', 'y', 'Ø'].map((t) => h('th', { class: 'num' }, t)))),
+          h('thead', {}, h('tr', {}, h('th', {}, 'Bore'), ['x', 'y', 'Ø'].map((t) => h('th', { class: 'num' }, isImperial() ? `${t} (mm)` : t)))),
           h(
             'tbody',
             {},

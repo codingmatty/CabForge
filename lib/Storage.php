@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace CabForge;
 
 /**
- * JSON-file storage for projects and the shop settings (material library +
- * construction standards). Files live under data/, which .htaccess keeps
+ * JSON-file storage for projects, the shop settings (material library +
+ * construction standards) and the shop preferences (display units). Files live under data/, which .htaccess keeps
  * out of reach of the web.
  */
 final class Storage
@@ -35,6 +35,16 @@ final class Storage
     public function writeShop(object $shop): void
     {
         $this->write($this->dir . '/shop.json', $shop);
+    }
+
+    public function readPrefs(): ?object
+    {
+        return $this->read($this->dir . '/prefs.json');
+    }
+
+    public function writePrefs(object $prefs): void
+    {
+        $this->write($this->dir . '/prefs.json', $prefs);
     }
 
     /** @return list<array{id: string, name: string, updated: int}> newest first */

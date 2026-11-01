@@ -30,7 +30,8 @@ import {
 } from '../engine/model.js';
 import { atOf, baseSource, jobFor, standOff, placeAfter, placedAfter, relayout, resizeCabinet, runNeighbours } from '../engine/project.js';
 import { locations } from '../engine/room.js';
-import { checkboxField, h, mount, numField, selectField, sizeReference, textField } from './dom.js';
+import { checkboxField, h, lenField, lenInput, mount, numField, selectField, sizeReference, textField } from './dom.js';
+import { fmtLen, fmtLenU, isImperial, unitName } from '../engine/units.js';
 import { select, setState, state, updateProject } from './store.js';
 
 const close = () => setState({ cabDialog: null });
@@ -108,7 +109,7 @@ function frontSectionCard(sec, i, n, con) {
       selectField(
         'Height',
         `sec-${i}-size`,
-        [[SIZE_FILL, 'Fills the rest'], [SIZE_CUSTOM, 'Custom (mm)'], ...sizeOptions(con, sec.units)],
+        [[SIZE_FILL, 'Fills the rest'], [SIZE_CUSTOM, `Custom (${unitName()})`], ...sizeOptions(con, sec.units)],
         size,
         (v) =>
           set((cur) => {
@@ -118,7 +119,7 @@ function frontSectionCard(sec, i, n, con) {
             else if (v !== SIZE_FILL) cur.units = Number(v);
           }),
       ),
-      size === SIZE_CUSTOM ? numField('Front height', `sec-${i}-height`, sec.height, (v) => set((cur) => (cur.height = Math.max(60, v)))) : null,
+      size === SIZE_CUSTOM ? lenField('Front height', `sec-${i}-height`, sec.height, (v) => set((cur) => (cur.height = Math.max(60, v)))) : null,
       sec.type === 'door' ? selectField('Doors', `sec-${i}-doors`, DOOR_COUNTS, sec.doors ?? 0, (v) => set((cur) => (cur.doors = Number(v)))) : null,
       sec.type === 'drawer'
         ? null
@@ -141,13 +142,13 @@ function stackNote(c, con, sections) {
   const left = span - used;
   const over = left < -0.05 || (fills && left < 60 * fills);
   const text =
-    `${fmtMm(span)} mm of fronts, top to bottom. ` +
+    `${fmtLenU(span)} of fronts, top to bottom. ` +
     (fills
-      ? `${fills === 1 ? 'The section with no height takes' : `The ${fills} sections with no height share`} the ${fmtMm(Math.max(0, left))} mm left.`
+      ? `${fills === 1 ? 'The section with no height takes' : `The ${fills} sections with no height share`} the ${fmtLenU(Math.max(0, left))} left.`
       : left > 0.05
-        ? `${fmtMm(left)} mm left open at the bottom.`
+        ? `${fmtLenU(left)} left open at the bottom.`
         : left < -0.05
-          ? `${fmtMm(-left)} mm too much.`
+          ? `${fmtLenU(-left)} too much.`
           : 'They fill the cabinet.');
   const drawers = sections.filter((sec) => sec.type === 'drawer');
   // All drawers: size them in units, as a new drawer base starts.
@@ -201,10 +202,12 @@ function placeSelectedAfter(afterId) {
   select(index);
 }
 
-const num = (c, label, key, get, set, opts) => numField(label, key, get(c), (v) => editCabinet((c) => set(c, v)), opts);
+// A length of the cabinet, and a plain number (shelf count).
+const num = (c, label, key, get, set, opts) => lenField(label, key, get(c), (v) => editCabinet((c) => set(c, v)), opts);
+const count = (c, label, key, get, set, opts) => numField(label, key, get(c), (v) => editCabinet((c) => set(c, v)), opts);
 
 function resizeField(c, min = 0) {
-  return numField(
+  return lenField(
     'Width',
     'width',
     c.width,
@@ -225,7 +228,7 @@ function fillerSection(c) {
     [
       textField('Name', 'name', c.name, (v) => editCabinet((c) => (c.name = v)), { wide: true }),
       c.panel
-        ? h('label', { class: 'field', title: 'A panel is as wide as its front material is thick' }, h('span', {}, 'Width'), h('input', { type: 'number', value: fmtMm(c.width), disabled: true }))
+        ? h('label', { class: 'field', title: 'A panel is as wide as its front material is thick' }, h('span', {}, 'Width'), h('input', { value: isImperial() ? fmtLen(c.width) : fmtMm(c.width), disabled: true }))
         : resizeField(c, 5),
       selectField('Run', 'run', Object.entries(RUN_LABELS), c.run, (run) => {
         const i = state.selected;
@@ -290,16 +293,16 @@ function cornerSection(c) {
       spec.corner = { ...spec.corner, return: l.return };
     });
     fields.push(
-      numField('Door opening (this wall)', 'cornerA', openingA, (v) => legs(Math.max(100, v), openingB)),
-      numField('Door opening (next wall)', 'cornerB', openingB, (v) => legs(openingA, Math.max(100, v))),
+      lenField('Door opening (this wall)', 'cornerA', openingA, (v) => legs(Math.max(100, v), openingB)),
+      lenField('Door opening (next wall)', 'cornerB', openingB, (v) => legs(openingA, Math.max(100, v))),
     );
   } else {
     fields.push(
-      numField('Along this wall', 'cornerW', c.width, (v) => setCorner((spec) => (spec.width = Math.max(spec.depth + 100, v)))),
-      numField('Along the next wall', 'cornerR', c.corner.return, (v) => setCorner((spec) => (spec.corner = { ...spec.corner, return: Math.max(spec.depth + 100, v) }))),
+      lenField('Along this wall', 'cornerW', c.width, (v) => setCorner((spec) => (spec.width = Math.max(spec.depth + 100, v)))),
+      lenField('Along the next wall', 'cornerR', c.corner.return, (v) => setCorner((spec) => (spec.corner = { ...spec.corner, return: Math.max(spec.depth + 100, v) }))),
     );
   }
-  fields.push(numField('Back corner 45° (each wall)', 'cornerCh', c.corner.chamfer, (v) => setCorner((spec) => (spec.corner = { ...spec.corner, chamfer: Math.max(0, v) }))));
+  fields.push(lenField('Back corner 45° (each wall)', 'cornerCh', c.corner.chamfer, (v) => setCorner((spec) => (spec.corner = { ...spec.corner, chamfer: Math.max(0, v) }))));
   const off = standOff(p, c);
   const auto = c.corner.standOff == null;
   fields.push(
@@ -318,23 +321,14 @@ function cornerSection(c) {
               '↺',
             ),
       ),
-      h('input', {
-        type: 'number',
-        step: 1,
-        'data-key': 'cornerOff',
-        value: fmtMm(off),
-        onchange: (e) => {
-          const v = parseFloat(e.target.value);
-          if (Number.isFinite(v)) setCorner((spec) => (spec.corner = { ...spec.corner, standOff: Math.max(0, v) }));
-        },
-      }),
+      h('input', lenInput(off, (v) => setCorner((spec) => (spec.corner = { ...spec.corner, standOff: Math.max(0, v) })), { key: 'cornerOff' })),
     ),
   );
   const std = p.construction.cabinetSizes?.[c.kind]?.depth;
   const size =
-    `${fmtMm(c.width)} along this wall × ${fmtMm(c.corner.return)} along the next, ${fmtMm(c.depth)} deep, ` +
-    (auto ? `${fmtMm(off)} off both walls so its fronts line up with ${fmtMm(std ?? c.depth)} deep cabinets` : `${fmtMm(off)} off both walls`);
-  const door = c.corner.type === 'L' ? 'Two doors meet in the inside corner.' : `One ${fmtMm(cornerDoors(c, con).door)} mm door on the 45° diagonal (use a 45° hinge plate).`;
+    `${fmtLen(c.width)} along this wall × ${fmtLen(c.corner.return)} along the next, ${fmtLen(c.depth)} deep, ` +
+    (auto ? `${fmtLen(off)} off both walls so its fronts line up with ${fmtLen(std ?? c.depth)} deep cabinets` : `${fmtLen(off)} off both walls`);
+  const door = c.corner.type === 'L' ? 'Two doors meet in the inside corner.' : `One ${fmtLenU(cornerDoors(c, con).door)} door on the 45° diagonal (use a 45° hinge plate).`;
   const where =
     loc?.kind !== 'wall'
       ? ' Corner cabinets belong at the end of a wall.'
@@ -361,7 +355,7 @@ function spaceSection(c) {
       selectField(
         'For',
         'spacePreset',
-        Object.entries(SPACE_PRESETS).map(([id, sp]) => [id, `${sp.label} (${fmtMm(spaceSize(id, state.project.construction).width)})`]),
+        Object.entries(SPACE_PRESETS).map(([id, sp]) => [id, `${sp.label} (${fmtLen(spaceSize(id, state.project.construction).width)})`]),
         c.preset ?? 'space',
         (v) => {
           const sp = SPACE_PRESETS[v];
@@ -409,7 +403,7 @@ function frontsSection(c) {
 function cornerShelves(c) {
   return section(
     'Shelves',
-    [num(c, 'Shelves', 'shelves', (c) => c.shelves, (c, v) => (c.shelves = Math.min(12, Math.max(0, Math.round(v)))))],
+    [count(c, 'Shelves', 'shelves', (c) => c.shelves, (c, v) => (c.shelves = Math.min(12, Math.max(0, Math.round(v)))))],
     'The doors follow the corner (Size & position).',
   );
 }
@@ -483,17 +477,9 @@ function overrideField(spec, label, path, control, { wide = false } = {}) {
   );
 }
 
-const numberControl = (min = 0) => (value, commit, key) =>
-  h('input', {
-    type: 'number',
-    step: 0.5,
-    'data-key': key,
-    value: fmtMm(value ?? 0),
-    onchange: (e) => {
-      const v = parseFloat(e.target.value);
-      if (Number.isFinite(v)) commit(Math.max(min, v));
-    },
-  });
+/** A length override; `metric` keeps it in mm (drawer hardware). */
+const numberControl = (min = 0, { metric = false } = {}) => (value, commit, key) =>
+  h('input', lenInput(value ?? 0, (v) => commit(Math.max(min, v)), { step: 0.5, key, metric }));
 
 const selectControl = (options, parse = (v) => v) => (value, commit, key) =>
   h(
@@ -603,7 +589,7 @@ function drawerOverrides(spec, c, field) {
   if (spec.corner || !frontSections(spec).some((sec) => sec.type === 'drawer')) return null;
   return section('Drawers', [
     field('Slide length', 'slide.length', selectControl(c.slide.lengths.map((l) => [l, `${l} mm`]), Number)),
-    field('Drawer bottom raise', 'drawerBottomRaise', numberControl()),
+    field('Drawer bottom raise', 'drawerBottomRaise', numberControl(0, { metric: true })),
   ]);
 }
 

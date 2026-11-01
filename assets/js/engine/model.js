@@ -3,6 +3,7 @@
 // whole job. All lengths are millimetres.
 
 import { BAND_PARTS } from './part.js';
+import { fmtMm } from './units.js';
 
 export const CABINET_KINDS = {
   base: { label: 'Base', toeKick: true },
@@ -242,6 +243,35 @@ export function defaultSheetSize(kind) {
   return kind === 'Melamine' ? [97 * INCH, 49 * INCH] : [96 * INCH, 48 * INCH];
 }
 
+/**
+ * US standard sizes for new cabinets (in place): 24" wide, 34 1/2" base with
+ * a 4" toe kick, 30" wall, 84" tall, 24" deep with the door, 12" deep walls;
+ * a 24" dishwasher, 30" range, 36" fridge; 24" corner walls; a 1 1/2" top
+ * with a 1" overhang. Doors up to 24" stay single. Materials, reveals and
+ * hardware are left alone. Cabinets already in a job keep their sizes.
+ */
+export function usStandardSizes(c) {
+  const toe = 4 * INCH;
+  const caseDepth = 23.25 * INCH; // 24" with a 3/4" door
+  c.toeKickHeight = toe;
+  c.toeKickSetback = 3 * INCH;
+  c.cabinetSizes = {
+    base: { width: 24 * INCH, boxHeight: 34.5 * INCH - toe, depth: caseDepth },
+    wall: { width: 24 * INCH, boxHeight: 30 * INCH, depth: 11.25 * INCH },
+    tall: { width: 24 * INCH, boxHeight: 84 * INCH - toe, depth: caseDepth },
+  };
+  c.maxSingleDoorWidth = 24 * INCH;
+  c.spaceSizes = {
+    space: { width: 24 * INCH, height: 0, depth: 0 },
+    dishwasher: { width: 24 * INCH, height: 0, depth: 0 },
+    range: { width: 30 * INCH, height: 0, depth: 0 },
+    fridge: { width: 36 * INCH, height: 70 * INCH, depth: 0 },
+  };
+  c.corner = { ...c.corner, baseDepth: caseDepth, openingA: 12 * INCH, openingB: 12 * INCH, wallSize: 24 * INCH };
+  c.countertop = { ...c.countertop, thickness: 1.5 * INCH, frontOverhang: 1 * INCH };
+  return c;
+}
+
 /** A library material. An edge band (kind 'Edge band', `edgeBand` true) is a
  *  roll of banding: its thickness is the band thickness and it has no sheet
  *  size. `cost` is the price of a sheet, or of a metre of band; 0 = not priced. */
@@ -255,9 +285,8 @@ export function fmtMoney(v) {
   return `$${v.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function fmtMm(v) {
-  return Math.abs(v - Math.round(v)) < 0.05 ? v.toFixed(0) : v.toFixed(1);
-}
+// Millimetres with no unit (units.js formats lengths in the display units).
+export { fmtMm };
 
 /** "White melamine 16mm" */
 export function materialLabel(m) {

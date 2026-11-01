@@ -5,6 +5,7 @@
 import { defaultConstruction, ensureBands, ensurePanelMaterial, stackFronts } from '../engine/model.js';
 import { buildAll, emptyProject } from '../engine/project.js';
 import { ensureRoom, locationById, locations } from '../engine/room.js';
+import { setUnits } from '../engine/units.js';
 import { api } from './api.js';
 
 const CURRENT_KEY = 'cabforge.currentProject';
@@ -44,6 +45,10 @@ export const state = {
   noJob: false,
   /** The shop's construction standards (library included) for new projects. */
   shop: defaultConstruction(),
+  /** Shop-wide preferences: display units ('mm' | 'in') and the inch
+   *  precision (8, 16, 32 = fractions; 0 = decimal). Saved apart from the
+   *  shop's construction standards. */
+  prefs: { units: 'mm', precision: 32 },
   saveStatus: 'saved', // 'saved' | 'saving' | 'error'
   saveError: '',
 };
@@ -129,6 +134,10 @@ function rebuild() {
 
 let saveTimer = null;
 let lastShopJson = '';
+// The open job's construction as last saved (or opened): only a change to it
+// becomes the shop standard, so moving a cabinet doesn't overwrite shop
+// defaults set on their own (e.g. US standard sizes).
+let lastConstructionJson = '';
 
 function scheduleSave() {
   clearTimeout(saveTimer);
@@ -143,11 +152,12 @@ async function save() {
     await api.saveProject(project);
     // Construction edits become the shop standard for new projects.
     const shopJson = JSON.stringify(project.construction);
-    if (shopJson !== lastShopJson) {
+    if (shopJson !== lastConstructionJson && shopJson !== lastShopJson) {
       await api.saveShop(project.construction);
       lastShopJson = shopJson;
       state.shop = JSON.parse(shopJson);
     }
+    lastConstructionJson = shopJson;
     // A newer edit during the request has its own save queued.
     if (!saveTimer) state.saveStatus = 'saved';
     state.saveError = '';
@@ -229,6 +239,7 @@ export function openProject(project) {
   ensureRoom(project);
   stackAllFronts(project);
   state.project = project;
+  lastConstructionJson = JSON.stringify(project.construction);
   state.selected = 0;
   state.at = null;
   state.selectedPart = null;
@@ -265,8 +276,41 @@ export function cancelSave() {
   state.saveError = '';
 }
 
+/** Changes the shop preferences (display units) and saves them. */
+export async function setPrefs(patch) {
+  state.prefs = { ...state.prefs, ...patch };
+  applyPrefs();
+  notify();
+  try {
+    await api.savePrefs(state.prefs);
+  } catch (e) {
+    state.saveStatus = 'error';
+    state.saveError = e.message;
+    notify({ skipSettings: true });
+  }
+}
+
+function applyPrefs() {
+  setUnits({ system: state.prefs.units, precision: state.prefs.precision });
+}
+
+/** Replaces the shop's construction standards (used by new jobs) and saves
+ *  them; the open job is left as it is. */
+export async function setShop(construction) {
+  state.shop = construction;
+  lastShopJson = JSON.stringify(construction);
+  await api.saveShop(construction);
+}
+
 /** Loads the shop standards and the last opened project from the server. */
 export async function boot() {
+  try {
+    const prefs = await api.getPrefs();
+    if (prefs) state.prefs = { ...state.prefs, ...prefs };
+  } catch {
+    // keep mm: the shop load below reports a server that can't be reached
+  }
+  applyPrefs();
   try {
     const shop = await api.getShop();
     if (shop) {

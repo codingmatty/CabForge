@@ -23,6 +23,7 @@ import {
   stackFronts,
   thickness,
   unitFrontHeight,
+  usStandardSizes,
 } from '../assets/js/engine/model.js';
 import { bandGroup, boxIntersection, boxMax, bores, cutSize, isDrawerBox, isPlinth, partSolids } from '../assets/js/engine/part.js';
 import { nestGroup, nestItems, nestJob } from '../assets/js/engine/nest.js';
@@ -33,6 +34,7 @@ import { cornerDoors, newCorner } from '../assets/js/engine/corner.js';
 import { addIsland, addWall, ensureRoom, locations } from '../assets/js/engine/room.js';
 import { cncGroups, cncNesting, gcode, notchedOutline, onStock, sheetProgram, stockOutline, stockRect, tablePart } from '../assets/js/engine/cnc.js';
 import { solidcraftDesign } from '../assets/js/engine/solidcraft.js';
+import { MM_PER_IN, fmtLen, fmtLenU, fmtSize, formatInches, parseLen, setUnits } from '../assets/js/engine/units.js';
 import { supplies, suppliesCsv } from '../assets/js/engine/supplies.js';
 import { addCabinet, baseSource, buildAll, emptyProject, insertCabinet, jobFor, maxBoardLength, moveCabinet, newProject, placeAfter, placedParts, splitBoards, placedAfter, projectCutList, relayout, resizeCabinet, runNeighbours } from '../assets/js/engine/project.js';
 
@@ -2152,6 +2154,127 @@ test('older saves get a door panel material', () => {
   ensurePanelMaterial(c);
   assertEq(c.materials.panel, m.id);
   assertEq(c.library.length, JSON.parse(before).library.length, 'nothing more added');
+});
+
+// ---- units -----------------------------------------------------------------
+
+/** Runs fn with the given display units, then goes back to mm. */
+function withUnits(u, fn) {
+  setUnits(u);
+  try {
+    fn();
+  } finally {
+    setUnits({ system: 'mm' });
+  }
+}
+
+test('units: mm display is unchanged', () => {
+  assertEq(fmtLen(600), '600');
+  assertEq(fmtLen(1.5), '1.5');
+  assertEq(fmtLenU(19), '19 mm');
+});
+
+test('units: inch fractions at each precision', () => {
+  assertEq(formatInches(23.625, 32), '23 5/8"');
+  assertEq(formatInches(23.6, 8), '23 5/8"');
+  assertEq(formatInches(0.75, 16), '3/4"');
+  assertEq(formatInches(24, 16), '24"');
+  assertEq(formatInches(23.622, 32), '23 5/8"');
+  assertEq(formatInches(23.6875, 16), '23 11/16"');
+  assertEq(formatInches(23.6875, 8), '23 3/4"');
+  assertEq(formatInches(23.625, 0), '23.625"');
+  assertEq(formatInches(-1.5, 16), '-1 1/2"');
+});
+
+test('units: feet and inches above 36"', () => {
+  assertEq(formatInches(36, 16), '36"');
+  assertEq(formatInches(48, 16), `4' 0"`);
+  assertEq(formatInches(48.5, 16), `4' 1/2"`);
+  assertEq(formatInches(54.25, 16), `4' 6 1/4"`);
+  // Rounding up to the next foot carries over.
+  assertEq(formatInches(47.999, 16), `4' 0"`);
+  assertEq(formatInches(48, 16, { feet: false }), '48"');
+});
+
+test('units: a tiny length never shows as 0"', () => {
+  assertEq(formatInches(0.3 / MM_PER_IN, 32), '0.0118"');
+  assertEq(formatInches(0, 32), '0"');
+});
+
+test('units: fmtLen and fmtSize follow the setting', () => {
+  withUnits({ system: 'in', precision: 16 }, () => {
+    assertEq(fmtLen(600), '23 5/8"');
+    assertEq(fmtLenU(600), '23 5/8"');
+    assertEq(fmtLen(3657.6), `12' 0"`);
+    assertEq(fmtSize(2438.4, 609.6), `8' 0" × 24"`);
+  });
+});
+
+test('units: parseLen reads inches, fractions, feet and metric', () => {
+  const inch = (s) => parseLen(s, 'in') / MM_PER_IN;
+  assertApprox(inch('23.5'), 23.5);
+  assertApprox(inch('23 1/2'), 23.5);
+  assertApprox(inch('23-1/2"'), 23.5);
+  assertApprox(inch('3/4'), 0.75);
+  assertApprox(inch('.5'), 0.5);
+  assertApprox(inch('23 1/2 in'), 23.5);
+  assertApprox(inch('23″'), 23);
+  assertApprox(inch("4'"), 48);
+  assertApprox(inch(`4' 6"`), 54);
+  assertApprox(inch(`4'-6 1/2"`), 54.5);
+  assertApprox(inch("4'6"), 54);
+  assertApprox(inch('4ft 6in'), 54);
+  assertApprox(inch('1,200mm'), 1200 / MM_PER_IN);
+  assertApprox(inch('-1/2'), -0.5);
+  assertApprox(parseLen('600mm', 'in'), 600);
+  assertApprox(parseLen('60 cm', 'in'), 600);
+  assertApprox(parseLen('1.2m', 'in'), 1200);
+  assertApprox(parseLen('600', 'mm'), 600);
+  assertApprox(parseLen('24"', 'mm'), 609.6);
+  for (const bad of ['', 'abc', '1/0', '23 1/', '4\' x', '--1']) assert(Number.isNaN(parseLen(bad, 'in')), `"${bad}" is not a length`);
+});
+
+test('units: what is shown reads back as the same value', () => {
+  withUnits({ system: 'in', precision: 32 }, () => {
+    for (const inches of [0.75, 23.625, 34.5, 48, 96.03125, 144]) {
+      assertApprox(parseLen(fmtLen(inches * MM_PER_IN)), inches * MM_PER_IN);
+    }
+  });
+});
+
+test('units: US standard sizes build a 24" base cabinet with one door', () => {
+  const c = usStandardSizes(defaultConstruction());
+  const spec = newCabinet('base', 1, c);
+  assertApprox(spec.width, 609.6);
+  assertApprox(spec.height, 34.5 * MM_PER_IN);
+  const cab = buildCabinet(spec, c);
+  assertEq(cab.parts.filter((p) => p.role === 'door').length, 1, 'single door');
+  const lib = JSON.stringify(defaultConstruction().library);
+  assertEq(JSON.stringify(c.library), lib, 'materials untouched');
+});
+
+test('units: G-code in inches writes G20, inch coordinates and in/min feeds', () => {
+  const cfg = defaultConstruction().cnc;
+  const program = { minutes: 1, moves: [{ g: 1, x: 25.4, y: 50.8, z: -3.175, f: 2540 }, { g: 2, x: 0, y: 0, z: -3.175, i: 12.7, j: 0, f: 2540 }] };
+  const mm = gcode(program, cfg, [], { units: 'mm' });
+  assert(mm.includes('G21 G90'), 'mm program is G21');
+  assert(mm.includes('X25.4 Y50.8 Z-3.175 F2540'), mm);
+  const inch = gcode(program, cfg, [], { units: 'in' });
+  assert(inch.includes('G20 G90') && !inch.includes('G21'), 'inch program is G20');
+  assert(inch.includes('G1 X1 Y2 Z-0.125 F100'), inch);
+  assert(inch.includes('I0.5 J0'), inch);
+  assert(inch.includes('(Stock 49 x 49 in'), inch);
+});
+
+test('units: cut list CSV in inches has decimal inches and unit headers', () => {
+  const p = newProject();
+  const list = projectCutList(p);
+  const [head, row] = cutListCsv(list, { units: 'in' }).split('\n');
+  assert(head.includes('Thickness (mm),Length (in),Width (in)'), head);
+  const r = list.rows[0];
+  const cols = row.split(',');
+  assertApprox(Number(cols[4]), Math.round((r.length / MM_PER_IN) * 1000) / 1000);
+  assert(cutListCsv(list).startsWith('Qty,Part,Material,Thickness,Length,'), 'mm CSV unchanged');
 });
 
 // Runner

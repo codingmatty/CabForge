@@ -11,6 +11,7 @@
 
 import { bandThickness, fmtMm, partMaterial } from './model.js';
 import { boreFace, bores, cutSize } from './part.js';
+import { MM_PER_IN, fmtLenU, unitName } from './units.js';
 
 const sub = (a, b) => a.map((v, i) => v - b[i]);
 const dot = (a, b) => a.reduce((n, v, i) => n + v * b[i], 0);
@@ -165,9 +166,9 @@ export function cncWarnings(cfg) {
   const lead = cfg.leadIn ? cfg.leadInRadius : 0;
   if (cfg.stockX > cfg.tableX + EPS || cfg.stockY > cfg.tableY + EPS) out.push('The stock is bigger than the table.');
   if (cfg.spacing < d + lead - EPS) {
-    out.push(`Parts are ${fmtMm(cfg.spacing)} mm apart: the ${fmtMm(d)} mm tool${lead ? ` and ${fmtMm(lead)} mm lead-in` : ''} need ${fmtMm(d + lead)} mm, or the cut-out reaches the next part.`);
+    out.push(`Parts are ${fmtLenU(cfg.spacing)} apart: the ${fmtLenU(d)} tool${lead ? ` and ${fmtLenU(lead)} lead-in` : ''} need ${fmtLenU(d + lead)}, or the cut-out reaches the next part.`);
   }
-  if (cfg.margin < d / 2 + lead - EPS) out.push(`The ${fmtMm(cfg.margin)} mm margin leaves the tool${lead ? ' and lead-in' : ''} no room inside the stock edge (${fmtMm(d / 2 + lead)} mm needed).`);
+  if (cfg.margin < d / 2 + lead - EPS) out.push(`The ${fmtLenU(cfg.margin)} margin leaves the tool${lead ? ' and lead-in' : ''} no room inside the stock edge (${fmtLenU(d / 2 + lead)} needed).`);
   if (!(cfg.passDepth > 0)) out.push('Pass depth must be more than 0.');
   return out;
 }
@@ -231,7 +232,7 @@ function hole(pr, cx, cy, h, thickness) {
   const cfg = pr.cfg;
   const d = cfg.toolDiameter;
   const depth = Math.min(h.depth, thickness + cfg.cutThrough);
-  if (h.diameter < d - EPS) return `Ø${fmtMm(h.diameter)} holes are smaller than the ${fmtMm(d)} mm tool and were left out.`;
+  if (h.diameter < d - EPS) return `Ø${fmtMm(h.diameter)}${unitName() === 'in' ? ' mm' : ''} holes are smaller than the ${fmtLenU(d)} tool and were left out.`;
   const r = (h.diameter - d) / 2;
   if (r < EPS) {
     // The tool's own size: plunge, or peck. A full retract comes out of the
@@ -521,7 +522,7 @@ function pocket(pr, pk, part, warnings) {
     ? [open.x0 ? pk.x0 : pk.x0 + r, open.x1 ? pk.x1 : pk.x1 - r, pk.y0 + r, pk.y1 - r]
     : [open.y0 ? pk.y0 : pk.y0 + r, open.y1 ? pk.y1 : pk.y1 - r, pk.x0 + r, pk.x1 - r];
   if (b1 < b0 - EPS || a1 < a0 - EPS) {
-    warnings.add(`A ${fmtMm(Math.min(pk.x1 - pk.x0, pk.y1 - pk.y0))} mm dado is narrower than the ${fmtMm(cfg.toolDiameter)} mm tool and was left out.`);
+    warnings.add(`A ${fmtLenU(Math.min(pk.x1 - pk.x0, pk.y1 - pk.y0))} dado is narrower than the ${fmtLenU(cfg.toolDiameter)} tool and was left out.`);
     return;
   }
   const step = Math.max(cfg.toolDiameter * (cfg.stepover / 100), 0.1);
@@ -665,6 +666,10 @@ const n3 = (v) => {
   const s = (Math.round(v * 1000) / 1000 + 0).toFixed(3).replace(/\.?0+$/, '');
   return s === '-0' ? '0' : s;
 };
+const n4 = (v) => {
+  const s = (Math.round(v * 10000) / 10000 + 0).toFixed(4).replace(/\.?0+$/, '');
+  return s === '-0' ? '0' : s;
+};
 /** Comment text GRBL and its senders take: ASCII, no parentheses. */
 const ascii = (t) =>
   String(t)
@@ -675,14 +680,20 @@ const ascii = (t) =>
     .replace(/[^\x20-\x7e]/g, '');
 
 /** GRBL G-code for a sheet program. `title` lines go in the header. */
-export function gcode(program, cfg, title = []) {
+export function gcode(program, cfg, title = [], { units = unitName() } = {}) {
+  // Moves are planned in mm; an inch program (G20) writes every length in
+  // inches to 4 places and feeds in in/min.
+  const inch = units === 'in';
+  const len = inch ? (v) => n4(v / MM_PER_IN) : n3;
+  const rate = inch ? (v) => String(Math.round((v / MM_PER_IN) * 10) / 10) : (v) => String(Math.round(v));
+  const unit = inch ? 'in' : 'mm';
   const out = [...title.map((t) => `(${ascii(t)})`)];
   out.push(
-    `(Stock ${n3(cfg.stockX)} x ${n3(cfg.stockY)} mm - X0 Y0 front-left corner, Z0 top of material)`,
-    `(Tool: ${n3(cfg.toolDiameter)} mm end mill - drilling and cut-out)`,
+    `(Stock ${len(cfg.stockX)} x ${len(cfg.stockY)} ${unit} - X0 Y0 front-left corner, Z0 top of material)`,
+    `(Tool: ${len(cfg.toolDiameter)} ${unit} end mill - drilling and cut-out)`,
     `(Estimated run time ${Math.ceil(program.minutes)} min)`,
-    'G21 G90 G17 G94',
-    `G0 Z${n3(cfg.safeZ)}`,
+    `${inch ? 'G20' : 'G21'} G90 G17 G94`,
+    `G0 Z${len(cfg.safeZ)}`,
     `M3 S${Math.round(cfg.rpm)}`,
   );
   if (cfg.spindleDelay > 0) out.push(`G4 P${n3(cfg.spindleDelay)}`);
@@ -694,18 +705,18 @@ export function gcode(program, cfg, title = []) {
       continue;
     }
     const words = [`G${m.g}`];
-    if (m.g >= 2 || Math.abs(m.x - at.x) > 1e-6) words.push(`X${n3(m.x)}`);
-    if (m.g >= 2 || Math.abs(m.y - at.y) > 1e-6) words.push(`Y${n3(m.y)}`);
-    if (Math.abs(m.z - at.z) > 1e-6) words.push(`Z${n3(m.z)}`);
-    if (m.g >= 2) words.push(`I${n3(m.i)}`, `J${n3(m.j)}`);
+    if (m.g >= 2 || Math.abs(m.x - at.x) > 1e-6) words.push(`X${len(m.x)}`);
+    if (m.g >= 2 || Math.abs(m.y - at.y) > 1e-6) words.push(`Y${len(m.y)}`);
+    if (Math.abs(m.z - at.z) > 1e-6) words.push(`Z${len(m.z)}`);
+    if (m.g >= 2) words.push(`I${len(m.i)}`, `J${len(m.j)}`);
     if (words.length === 1) continue; // no motion
     if (m.g !== 0 && m.f !== feed) {
-      words.push(`F${Math.round(m.f)}`);
+      words.push(`F${rate(m.f)}`);
       feed = m.f;
     }
     out.push(words.join(' '));
     at = m;
   }
-  out.push(`G0 Z${n3(cfg.safeZ)}`, 'M5', 'G0 X0 Y0', 'M30');
+  out.push(`G0 Z${len(cfg.safeZ)}`, 'M5', 'G0 X0 Y0', 'M30');
   return out.join('\n') + '\n';
 }

@@ -4,6 +4,7 @@
 // applied after children so <select value> picks the right option.
 
 import { fmtMm } from '../engine/model.js';
+import { fmtLen, isImperial, parseLen } from '../engine/units.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -123,6 +124,52 @@ export function numField(label, key, value, onCommit, { step = 1, wide = false, 
     },
   });
   return h('label', { class: wide ? 'field wide' : 'field' }, h('span', {}, label), input);
+}
+
+/**
+ * Attributes for a length input (a value in mm): a number box in mm; in
+ * inches a text box that shows 23 5/8" and reads 23.5, 23 1/2, 4' 6", 600mm.
+ * `metric` keeps it in mm whatever the display units (32mm system, drawer
+ * units, material thickness). onCommit gets millimetres.
+ */
+export function lenInput(value, onCommit, { metric = false, step = 1, key, mmFormat = fmtMm, ...attrs } = {}) {
+  const shown = () => (metric || !isImperial() ? mmFormat(value ?? 0) : fmtLen(value ?? 0));
+  const base = { ...(key ? { 'data-key': key } : {}), ...attrs };
+  if (metric || !isImperial()) {
+    return {
+      ...base,
+      type: 'number',
+      step,
+      value: shown(),
+      onchange: (e) => {
+        const v = parseFloat(e.target.value);
+        if (Number.isFinite(v)) onCommit(v);
+        else e.target.value = shown();
+      },
+    };
+  }
+  delete base.min;
+  delete base.max;
+  return {
+    ...base,
+    type: 'text',
+    inputmode: 'decimal',
+    class: 'len',
+    spellcheck: 'false',
+    autocomplete: 'off',
+    title: `${fmtMm(value ?? 0)} mm`,
+    value: shown(),
+    onchange: (e) => {
+      const v = parseLen(e.target.value);
+      if (Number.isFinite(v)) onCommit(v);
+      else e.target.value = shown();
+    },
+  };
+}
+
+/** A labelled length field (value in mm); see lenInput. */
+export function lenField(label, key, value, onCommit, { wide = false, ...opts } = {}) {
+  return h('label', { class: wide ? 'field wide' : 'field' }, h('span', {}, label), h('input', lenInput(value, onCommit, { key, ...opts })));
 }
 
 export function textField(label, key, value, onCommit, { wide = false } = {}) {

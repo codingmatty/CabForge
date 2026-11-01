@@ -14,6 +14,7 @@ import { fmtMm, thickness } from './model.js';
 import { isPlinth } from './part.js';
 import { atOf, standOff } from './project.js';
 import { locations, placement } from './room.js';
+import { fmtLen, fmtSize, isImperial } from './units.js';
 
 const TOUCH = 0.5;
 // Cabinets this close in height share a top, which sits on the highest.
@@ -126,5 +127,5 @@ export function runLabel(top) {
 
 /** "2400 × 650 × 30 mm" */
 export function topSize(top) {
-  return `${fmtMm(top.length)} × ${fmtMm(top.depth)} × ${fmtMm(top.thickness)} mm`;
+  return isImperial() ? `${fmtSize(top.length, top.depth)} × ${fmtLen(top.thickness)}` : `${fmtMm(top.length)} × ${fmtMm(top.depth)} × ${fmtMm(top.thickness)} mm`;
 }

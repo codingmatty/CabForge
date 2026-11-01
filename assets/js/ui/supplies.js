@@ -8,6 +8,7 @@ import { supplies, suppliesCsv } from '../engine/supplies.js';
 import { download, h, mount } from './dom.js';
 import { sheetsNeeded } from './nesting.js';
 import { state } from './store.js';
+import { fmtArea, fmtLenU, fmtRun, fmtSize } from '../engine/units.js';
 
 const table = (head, rows, numeric) =>
   h(
@@ -54,8 +55,8 @@ export function renderSupplies(container) {
       'div',
       { class: 'totals' },
       h('div', {}, h('b', {}, totalSheets ?? '…'), 'Sheets'),
-      h('div', {}, h('b', {}, `${s.edgeBandM.toFixed(1)} m`), 'Edge banding'),
-      s.tops.length ? h('div', {}, h('b', {}, `${s.topM.toFixed(2)} m`), 'Countertop') : null,
+      h('div', {}, h('b', {}, fmtRun(s.edgeBandM)), 'Edge banding'),
+      s.tops.length ? h('div', {}, h('b', {}, fmtRun(s.topM, 2)), 'Countertop') : null,
       painting ? h('div', {}, h('b', {}, `${gallons} ${paint.products[0]?.unit ?? 'gal'}`), 'Paint') : null,
       h('div', {}, h('b', {}, hinges), 'Hinges'),
       h('div', {}, h('b', {}, pairs), 'Pairs of slides'),
@@ -81,9 +82,9 @@ export function renderSupplies(container) {
               {},
               h('td', {}, m.material),
               h('td', { class: 'num' }, `${fmtMm(m.thickness)} mm`),
-              h('td', { class: 'num' }, `${fmtMm(m.sheetLength)} × ${fmtMm(m.sheetWidth)}`),
+              h('td', { class: 'num' }, fmtSize(m.sheetLength, m.sheetWidth)),
               h('td', { class: 'num' }, m.parts),
-              h('td', { class: 'num' }, `${m.areaM2.toFixed(2)} m²`),
+              h('td', { class: 'num' }, fmtArea(m.areaM2)),
               h('td', { class: 'num qty' }, m.sheets ?? '…'),
               h('td', { class: 'num' }, m.unitCost ? fmtMoney(m.unitCost) : '—'),
               h('td', { class: 'num qty' }, money(m.unitCost, m.cost)),
@@ -103,7 +104,7 @@ export function renderSupplies(container) {
               h('td', {}, b.color ? h('i', { class: 'swatch band-swatch', style: { background: b.color } }) : null, b.name),
               h('td', {}, b.type),
               h('td', { class: 'num' }, `${fmtMm(b.thickness)} mm`),
-              h('td', { class: 'num qty' }, `${b.m.toFixed(1)} m`),
+              h('td', { class: 'num qty' }, fmtRun(b.m)),
               h('td', { class: 'num' }, b.unitCost ? fmtMoney(b.unitCost) : '—'),
               h('td', { class: 'num qty' }, money(b.unitCost, b.cost)),
             ),
@@ -121,9 +122,9 @@ export function renderSupplies(container) {
               {},
               h('td', {}, t.name),
               h('td', { class: 'muted-cell' }, t.run),
-              h('td', { class: 'num qty' }, `${fmtMm(t.length)} mm`),
-              h('td', { class: 'num' }, `${fmtMm(t.depth)} mm`),
-              h('td', { class: 'num' }, `${fmtMm(t.thickness)} mm`),
+              h('td', { class: 'num qty' }, fmtLenU(t.length)),
+              h('td', { class: 'num' }, fmtLenU(t.depth)),
+              h('td', { class: 'num' }, fmtLenU(t.thickness)),
               h('td', { class: 'num' }, t.unitCost ? fmtMoney(t.unitCost) : '—'),
               h('td', { class: 'num qty' }, money(t.unitCost, t.cost)),
             ),

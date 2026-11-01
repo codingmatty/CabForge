@@ -9,6 +9,7 @@
 import { CABINET_KINDS, SLOTS, SLOT_LABELS, caseT, drawerSize, effectiveConstruction, fmtMm, frontSections, frontUnits, material, partBandId, thickness, toeHeight, unitFrontHeight } from './model.js';
 import { cornerFootprint, cornerParts } from './corner.js';
 import { EDGES, addBore, bandEdges, bandGroup, bores, box, isFront, roundedRect } from './part.js';
+import { fmtLen, fmtLenU } from './units.js';
 
 export class BuildError extends Error {
   constructor(message) {
@@ -675,7 +676,7 @@ class Builder {
         const total = sections.reduce((n, sec) => n + sec.units, 0);
         throw new BuildError(`${name}: the fronts take ${total} units of ${fmtMm(c.drawerUnit)} mm; the cabinet has room for ${frontUnits(c, this.spec)}`);
       }
-      throw new BuildError(`${name}: the fronts take ${fmtMm(fixed + gaps)} mm; the cabinet has ${fmtMm(y1 - y0)}`);
+      throw new BuildError(`${name}: the fronts take ${fmtLenU(fixed + gaps)}; the cabinet has ${fmtLen(y1 - y0)}`);
     }
     if (fills && left < 60 * fills) throw new BuildError(`${name}: the sized fronts leave no room for the others`);
 

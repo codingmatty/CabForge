@@ -30,9 +30,9 @@ no external libraries, no build step.
 | Path | What it is |
 |---|---|
 | `index.php` | App shell. Adds a file-time version to asset URLs so deploys show up immediately. |
-| `api.php` | JSON API: saves projects and the shop settings (material library + construction). |
+| `api.php` | JSON API: saves projects, the shop settings (material library + construction) and the shop preferences (display units). |
 | `lib/Storage.php` | JSON-file storage with atomic writes. |
-| `data/` | Saved projects (`projects/*.json`) and `shop.json`. Must be writable by Apache. |
+| `data/` | Saved projects (`projects/*.json`), `shop.json` and `prefs.json`. Must be writable by Apache. |
 | `assets/js/engine/` | The parametric engine: specs → parts, 32mm boring, cut list. Pure functions, no DOM. |
 | `assets/js/ui/` | Browser UI: sidebar, settings dialog, projects dialog, SVG elevation and part drawings, WebGL2 3D view. |
 | `tests/` | Engine tests. Open `tests/` in a browser; the page title reads `PASS n/n`. |
@@ -66,9 +66,23 @@ and create the password file with `htpasswd -c /etc/apache2/.htpasswd-cabforge y
 
 ## Construction model (defaults)
 
-All units are millimetres. Everything is editable from the gear button (Settings). Settings has a section nav on the
-left (Cabinets: Sizes & fronts, Case & base, 32mm system; Hardware: Hinges, Drawers; Materials: Sheet materials,
+All lengths are stored in millimetres. Everything is editable from the gear button (Settings). Settings has a section nav on the
+left (Shop: Units; Cabinets: Sizes & fronts, Case & base, 32mm system; Hardware: Hinges, Drawers; Materials: Sheet materials,
 Edge banding; Machining: CNC router), each page a column of setting groups that scrolls.
+
+- **Units** (Settings → Units, for the whole shop, saved in `data/prefs.json`): millimetres or inches. In inches,
+  lengths show as fractions rounded to 1/8, 1/16 or 1/32 (the default), or as decimals, and anything over 36" as feet
+  and inches (`4' 6 1/2"`). Length fields then take `23.5`, `23 1/2`, `23-1/2"`, `3/4`, `4' 6"`, `4ft 6in`, `600mm` or
+  `60cm`; a typed size is stored exactly (23 5/8" = 600.075mm), and hovering a field shows its mm value. The cut list,
+  Materials report, their CSV exports, the part drawings, the CNC settings and the G-code (G20, inches and in/min)
+  follow the units. These stay in mm: material and edge band thickness, the 32mm system, hinge, slide and drawer
+  settings (drawer unit, sizes, box heights), hole positions and sizes on the drawings, and the SolidCraft export.
+  Edge band and countertop prices stay per metre. (`engine/units.js`)
+- **Use US standard sizes for new jobs** (Settings → Units) sets the shop defaults: 24" wide cabinets, 34 1/2" base
+  with a 4" toe kick (3" overhang), 30" wall and 84" tall cabinets, 23 1/4" deep bases and 11 1/4" deep walls (24" and
+  12" with a 3/4" door), 24" dishwasher, 30" range, 36" × 70" fridge, 24" corner walls (12" L-corner doors) and a
+  1 1/2" countertop with a 1" overhang; doors up to 24" stay single. The open job is not changed, and editing it no
+  longer overwrites the shop defaults unless its construction settings change.
 
 - Materials come from a library: name, type, thickness, colour, sheet size, grain. Stock sheets
   default to 49" × 97" (1244.6 × 2463.8mm) for melamine and 48" × 96" (1219.2 × 2438.4mm) otherwise. Construction

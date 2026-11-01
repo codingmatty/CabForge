@@ -7,6 +7,7 @@ import { cncGroups, cncNesting, cncWarnings, gcode, onStock, sheetProgram, stock
 import { fmtMm, materialLabel } from '../engine/model.js';
 import { nestGroup } from '../engine/nest.js';
 import { checkboxField, download, h, mount, s, selectField } from './dom.js';
+import { fmtLen, fmtLenU, fmtSize, rateValue, unitName } from '../engine/units.js';
 import { setState, state, updateProject } from './store.js';
 
 let worker = null;
@@ -148,7 +149,7 @@ function partPicker() {
               ),
               h('td', {}, part.name),
               h('td', {}, cabinet),
-              h('td', { class: 'num' }, `${fmtMm(part.length)} × ${fmtMm(part.width)}`),
+              h('td', { class: 'num' }, `${fmtSize(part.length, part.width)}`),
               h('td', { class: 'num' }, holes || ''),
               h('td', { class: notes.length && !fits(part) ? 'err' : 'muted-cell' }, notes.join(' · ')),
             );
@@ -223,7 +224,7 @@ function sheetPreview(cfg, sheet, program) {
       s(
         'g',
         {},
-        s('title', {}, `#${p.number} ${p.name} — ${p.cabinet}\n${fmtMm(p.length)} × ${fmtMm(p.width)} mm${p.rotated ? ' (rotated)' : ''}`),
+        s('title', {}, `#${p.number} ${p.name} — ${p.cabinet}\n${fmtSize(p.length, p.width)}${p.rotated ? ' (rotated)' : ''}`),
         s('polygon', { class: 'cnc-part', points: stockOutline(p).map(([x, y]) => `${x},${fy(y)}`).join(' ') }),
         (p.pockets ?? []).map((pk) => {
           const r = stockRect(p, pk);
@@ -251,7 +252,7 @@ function sheetCard(cfg, g, sheet, i) {
   const title = [
     `CabForge - ${state.project.name || 'Job'}`,
     `${g.material.name} ${fmtMm(g.material.thickness)} mm - sheet ${i + 1} of ${g.sheets.length}`,
-    ...sheet.parts.map((p) => `#${p.number} ${p.name} - ${p.cabinet} - ${fmtMm(p.length)} x ${fmtMm(p.width)}${p.rotated ? ' rotated' : ''}`),
+    ...sheet.parts.map((p) => `#${p.number} ${p.name} - ${p.cabinet} - ${fmtSize(p.length, p.width).replace(' × ', ' x ')}${p.rotated ? ' rotated' : ''}`),
   ];
   const save = () => download(fileName(g, i), 'text/plain', gcode(program, cfg, title));
   return {
@@ -286,8 +287,8 @@ function sheetCard(cfg, g, sheet, i) {
                 h('td', { class: 'num' }, p.number),
                 h('td', {}, p.name),
                 h('td', {}, p.cabinet),
-                h('td', { class: 'num' }, `${fmtMm(p.length)} × ${fmtMm(p.width)}`),
-                h('td', { class: 'num' }, `${fmtMm(p.x)}, ${fmtMm(p.y)}`),
+                h('td', { class: 'num' }, `${fmtSize(p.length, p.width)}`),
+                h('td', { class: 'num' }, `${fmtLen(p.x)}, ${fmtLen(p.y)}`),
                 h('td', {}, p.rotated ? '↻ rotated' : ''),
               ),
             ),
@@ -313,8 +314,8 @@ export function renderCnc(container) {
     h(
       'p',
       { class: 'muted' },
-      `Table ${fmtMm(cfg.tableX)} × ${fmtMm(cfg.tableY)} mm · stock ${fmtMm(cfg.stockX)} × ${fmtMm(cfg.stockY)} mm · ` +
-        `${fmtMm(cfg.toolDiameter)} mm end mill at ${Math.round(cfg.rpm)} rpm, ${Math.round(cfg.feed)} mm/min · GRBL, Z0 on top of the material.`,
+      `Table ${fmtSize(cfg.tableX, cfg.tableY)}${unitName() === 'mm' ? ' mm' : ''} · stock ${fmtSize(cfg.stockX, cfg.stockY)}${unitName() === 'mm' ? ' mm' : ''} · ` +
+        `${fmtLenU(cfg.toolDiameter)} end mill at ${Math.round(cfg.rpm)} rpm, ${rateValue(cfg.feed)} ${unitName()}/min · GRBL (${unitName() === 'in' ? 'G20, inches' : 'G21, mm'}), Z0 on top of the material.`,
     ),
     cncWarnings(cfg).map((w) => h('div', { class: 'error' }, w)),
     h('h3', {}, 'Parts to machine'),
@@ -355,7 +356,7 @@ export function renderCnc(container) {
               'div',
               { class: 'error' },
               `${g.unplaced.length} part${g.unplaced.length > 1 ? 's don’t' : ' doesn’t'} fit on the stock: `,
-              g.unplaced.map((p) => `${p.name} (${p.cabinet}) ${fmtMm(p.length)} × ${fmtMm(p.width)}`).join('; '),
+              g.unplaced.map((p) => `${p.name} (${p.cabinet}) ${fmtSize(p.length, p.width)}`).join('; '),
             )
           : null,
         h('div', { class: 'sheet-grid' }, cards.map((c) => c.element)),

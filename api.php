@@ -8,6 +8,8 @@ declare(strict_types=1);
  *   GET    api.php?action=health
  *   GET    api.php?action=shop              -> { shop: object|null }
  *   PUT    api.php?action=shop              <- shop settings
+ *   GET    api.php?action=prefs             -> { prefs: object|null }
+ *   PUT    api.php?action=prefs             <- shop preferences (display units)
  *   GET    api.php?action=projects          -> { projects: [{ id, name, updated }] }
  *   GET    api.php?action=project&id=ID     -> { project }
  *   PUT    api.php?action=project&id=ID     <- project
@@ -84,6 +86,16 @@ try {
             }
             if ($method === 'PUT') {
                 $storage->writeShop(readJsonBody());
+                respond(200, ['ok' => true]);
+            }
+            break;
+
+        case 'prefs':
+            if ($method === 'GET') {
+                respond(200, ['prefs' => $storage->readPrefs()]);
+            }
+            if ($method === 'PUT') {
+                $storage->writePrefs(readJsonBody());
                 respond(200, ['ok' => true]);
             }
             break;

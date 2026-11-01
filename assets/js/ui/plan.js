@@ -4,10 +4,10 @@
 
 import { footprint } from '../engine/build.js';
 import { countertops } from '../engine/countertop.js';
-import { fmtMm } from '../engine/model.js';
+import { fmtLen } from '../engine/units.js';
 import { cabinetPlacement, relayout } from '../engine/project.js';
 import { DEFAULT_WALL_COLOR, ISLAND_TYPES, TURNS, addIsland, addWall, locations, removeLocation } from '../engine/room.js';
-import { h, mount, numField, s, selectField, textField } from './dom.js';
+import { h, lenField, mount, s, selectField, textField } from './dom.js';
 import { setState, state, toggleSelect, updateProject } from './store.js';
 
 const WALL = 100; // drawn wall thickness
@@ -31,7 +31,7 @@ function wallEditor(wall, i, count) {
       'div',
       { class: 'fields' },
       textField('Name', `wall-${wall.id}-name`, wall.name, (v) => set('name', v.trim() || wall.name), { wide: true }),
-      numField('Length', `wall-${wall.id}-length`, wall.length, (v) => set('length', Math.max(100, v))),
+      lenField('Length', `wall-${wall.id}-length`, wall.length, (v) => set('length', Math.max(100, v))),
       i > 0 ? selectField('Meets the wall before', `wall-${wall.id}-turn`, Object.entries(TURNS), wall.turn, (v) => set('turn', v)) : null,
       selectField('Line up from', `wall-${wall.id}-from`, Object.entries(LINE_UP), wall.from ?? 'auto', (v) => set('from', v), { wide: true }),
     ),
@@ -63,10 +63,10 @@ function islandEditor(island) {
         island.rotation,
         (v) => set('rotation', Number(v)),
       ),
-      numField('X (left)', `isl-${island.id}-x`, island.x, (v) => set('x', v)),
-      numField('Y (top, from wall 1)', `isl-${island.id}-z`, island.z, (v) => set('z', v)),
-      numField(island.type === 'double' ? 'Seating overhang (back row side)' : 'Seating overhang (back)', `isl-${island.id}-oh`, island.overhang, (v) => set('overhang', Math.max(0, v)), { wide: true }),
-      numField('End overhang (both ends)', `isl-${island.id}-ends`, island.ends ?? 0, (v) => set('ends', Math.max(0, v)), { wide: true }),
+      lenField('X (left)', `isl-${island.id}-x`, island.x, (v) => set('x', v)),
+      lenField('Y (top, from wall 1)', `isl-${island.id}-z`, island.z, (v) => set('z', v)),
+      lenField(island.type === 'double' ? 'Seating overhang (back row side)' : 'Seating overhang (back)', `isl-${island.id}-oh`, island.overhang, (v) => set('overhang', Math.max(0, v)), { wide: true }),
+      lenField('End overhang (both ends)', `isl-${island.id}-ends`, island.ends ?? 0, (v) => set('ends', Math.max(0, v)), { wide: true }),
     ),
     h('button', { class: 'danger', onclick: () => editRoom((room, p) => removeLocation(p, 'island', island.id)) }, 'Remove island'),
   );
@@ -92,7 +92,7 @@ function roomEditor(p) {
     h(
       'div',
       { class: 'fields' },
-      numField('Ceiling height (3D walls)', 'room-height', p.room.height ?? 2400, (v) => editRoom((room) => (room.height = Math.max(500, v)))),
+      lenField('Ceiling height (3D walls)', 'room-height', p.room.height ?? 2400, (v) => editRoom((room) => (room.height = Math.max(500, v)))),
       h(
         'label',
         { class: 'field' },
@@ -135,7 +135,7 @@ export function renderPlan(container) {
         'g',
         { class: 'cab-hit', onclick: () => setState({ at: l.id }) },
         poly([a, b, back(b), back(a)], { class: l.id === state.at ? 'pl-wall active' : 'pl-wall' }),
-        s('text', { class: 'dw-text pl-label', x: mid[0], y: mid[1], 'font-size': font, 'text-anchor': 'middle', 'dominant-baseline': 'middle' }, `${l.name} · ${fmtMm(l.length)}`),
+        s('text', { class: 'dw-text pl-label', x: mid[0], y: mid[1], 'font-size': font, 'text-anchor': 'middle', 'dominant-baseline': 'middle' }, `${l.name} · ${fmtLen(l.length)}`),
       );
     });
 

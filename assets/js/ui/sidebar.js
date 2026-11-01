@@ -9,6 +9,7 @@ import { addWall, locations } from '../engine/room.js';
 import { RUN_LABELS, countOverrides } from './cabinetdialog.js';
 import { gearIcon, h, mount } from './dom.js';
 import { currentAt, select, setState, state, toggleSelect, updateProject } from './store.js';
+import { fmtLen, isImperial } from '../engine/units.js';
 
 // New cabinets take their sizes from the job construction.
 const job = () => state.project.construction;
@@ -108,12 +109,12 @@ function cabinetRow(c, i) {
       'span',
       { class: 'dims' },
       c.panel
-        ? `${fmtMm(c.width)} · panel`
+        ? `${fmtLen(c.width)} · panel`
         : c.kind === 'filler'
-        ? `${fmtMm(c.width)} · ${RUN_LABELS[c.run].toLowerCase()}`
+        ? `${fmtLen(c.width)} · ${RUN_LABELS[c.run].toLowerCase()}`
         : c.kind === 'space'
-          ? `${fmtMm(c.width)} · space`
-          : `${fmtMm(c.width)}×${fmtMm(c.height)}×${fmtMm(c.depth)}`,
+          ? `${fmtLen(c.width)} · space`
+          : isImperial() ? `${fmtLen(c.width)} × ${fmtLen(c.height)} × ${fmtLen(c.depth)}` : `${fmtMm(c.width)}×${fmtMm(c.height)}×${fmtMm(c.depth)}`,
     ),
     h(
       'button',
@@ -232,7 +233,7 @@ function cabinetList() {
             onclick: () => setState({ at: loc.id }),
           },
           loc.name,
-          h('span', { class: 'dims' }, loc.kind === 'wall' ? fmtMm(loc.length) : `${fmtMm(loc.length)} island`),
+          h('span', { class: 'dims' }, loc.kind === 'wall' ? fmtLen(loc.length) : `${fmtLen(loc.length)} island`),
         ),
         rows.length ? h('ul', { class: 'cab-list' }, rows.map(([c, i]) => cabinetRow(c, i))) : h('p', { class: 'muted hint-small loc-empty' }, 'No cabinets yet.'),
       ];

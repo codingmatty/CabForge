@@ -6,6 +6,7 @@ import { runLabel } from './countertop.js';
 import { cutList } from './cutlist.js';
 import { fmtMm, materialById } from './model.js';
 import { paintNeeded } from './paint.js';
+import { FT_PER_M, csvLen, unitName } from './units.js';
 
 /**
  * @param cabinets built cabinets
@@ -99,21 +100,27 @@ export function supplies(cabinets, c, sheets = null, tops = []) {
   };
 }
 
-export function suppliesCsv(s) {
+/** The Materials report as CSV; sizes and lengths in the display units
+ *  (`units` 'in': inches and feet), thicknesses in mm. */
+export function suppliesCsv(s, { units = unitName() } = {}) {
+  const inch = units === 'in';
+  const size = (v) => (inch ? csvLen(v, 'in') : v.toFixed(0));
+  const run = (m, digits) => (inch ? (m * FT_PER_M).toFixed(digits) : m.toFixed(digits));
+  const runUnit = inch ? 'ft' : 'm';
   const esc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replaceAll('"', '""')}"` : String(v));
   const money = (v) => (v ? v.toFixed(2) : '');
   const lines = ['Category,Item,Specification,Quantity,Unit,Unit cost,Cost'];
   for (const m of s.sheets) {
-    const spec = `${m.thickness} mm, ${m.sheetLength.toFixed(0)} × ${m.sheetWidth.toFixed(0)}`;
+    const spec = `${m.thickness} mm, ${size(m.sheetLength)} × ${size(m.sheetWidth)}${inch ? ' in' : ''}`;
     lines.push(['Sheet goods', m.material, spec, m.sheets ?? '', 'sheets', money(m.unitCost), money(m.cost)].map(esc).join(','));
   }
   for (const b of s.bands) {
     const spec = `${b.type ? `${b.type}, ` : ''}${b.thickness} mm`;
-    lines.push(['Edge banding', b.name, spec, b.m.toFixed(1), 'm', money(b.unitCost), money(b.cost)].map(esc).join(','));
+    lines.push(['Edge banding', b.name, spec, run(b.m, 1), runUnit, money(b.unitCost), money(b.cost)].map(esc).join(','));
   }
   for (const t of s.tops) {
-    const spec = `${t.run}, ${fmtMm(t.length)} × ${fmtMm(t.depth)} × ${fmtMm(t.thickness)} mm`;
-    lines.push(['Countertop', t.name, spec, t.m.toFixed(2), 'm', money(t.unitCost), money(t.cost)].map(esc).join(','));
+    const spec = inch ? `${t.run}, ${size(t.length)} × ${size(t.depth)} × ${size(t.thickness)} in` : `${t.run}, ${fmtMm(t.length)} × ${fmtMm(t.depth)} × ${fmtMm(t.thickness)} mm`;
+    lines.push(['Countertop', t.name, spec, run(t.m, 2), runUnit, money(t.unitCost), money(t.cost)].map(esc).join(','));
   }
   for (const pr of s.paint?.products ?? []) {
     const spec = `${pr.coats} coat${pr.coats === 1 ? '' : 's'} over ${s.paint.areaFt2.toFixed(0)} ft², ${pr.qty.toFixed(2)} ${pr.unit} used`;

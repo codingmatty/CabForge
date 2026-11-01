@@ -1,12 +1,13 @@
 // Front elevation of one wall or island (the current one, picked above the
 // drawing), drawn from the built parts.
 
-import { effectiveConstruction, fmtMm, material, partMaterial, toeHeight } from '../engine/model.js';
+import { effectiveConstruction, material, partMaterial, toeHeight } from '../engine/model.js';
 import { bores, isFront } from '../engine/part.js';
 import { atOf, cabinetPlacement, jobFor, partMap, standOff } from '../engine/project.js';
 import { locationById, locations, toLocation } from '../engine/room.js';
 import { h, mount, s } from './dom.js';
 import { currentAt, setState, state, toggleSelect } from './store.js';
+import { fmtLen } from '../engine/units.js';
 
 export function renderElevation(container) {
   const { project, built, selected } = state;
@@ -37,7 +38,7 @@ export function renderElevation(container) {
       const box = s('rect', { class: i === selected ? 'el-space selected' : 'el-space', x: x0, y: y(caseY1), width: w, height: spec.height });
       const mid = y(spec.elevation + spec.height / 2);
       const text = (t, dy) => s('text', { class: 'dw-muted', x: x0 + w / 2, y: mid + dy, 'font-size': font * 0.7, 'text-anchor': 'middle' }, t);
-      return s('g', { class: 'cab-hit', onclick: () => toggleSelect(i) }, box, text(spec.name, 0), text(fmtMm(w), font * 0.9));
+      return s('g', { class: 'cab-hit', onclick: () => toggleSelect(i) }, box, text(spec.name, 0), text(fmtLen(w), font * 0.9));
     }
     if (toe > 0) shapes.push(s('rect', { class: 'dw-groove', x: x0, y: y(spec.elevation + toe), width: w, height: toe }));
     shapes.push(
@@ -100,7 +101,7 @@ export function renderElevation(container) {
       'g',
       { class: 'cab-hit', onclick: () => toggleSelect(i) },
       shapes,
-      s('text', { class: 'dw-text', x: x0 + w / 2, y: labelY, 'font-size': font * 0.8, 'text-anchor': 'middle' }, spec.kind === 'filler' ? fmtMm(w) : `${spec.name}  ·  ${fmtMm(w)}`),
+      s('text', { class: 'dw-text', x: x0 + w / 2, y: labelY, 'font-size': font * 0.8, 'text-anchor': 'middle' }, spec.kind === 'filler' ? fmtLen(w) : `${spec.name}  ·  ${fmtLen(w)}`),
     );
   });
 

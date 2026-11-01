@@ -19,14 +19,16 @@ import {
   nextMaterialId,
   spaceSize,
   unitFrontHeight,
+  usStandardSizes,
 } from '../engine/model.js';
 import { hingeBoring } from '../engine/build.js';
 import { cornerDoors, newCorner } from '../engine/corner.js';
 import { BAND_PARTS, EDGES } from '../engine/part.js';
 import { PAINT_GROUPS } from '../engine/paint.js';
 import { PLINTH_OPTIONS } from './cabinetdialog.js';
-import { checkboxField, h, mount, numField, selectField, sizeReference, textField } from './dom.js';
-import { setState, state, updateProject } from './store.js';
+import { checkboxField, h, lenField, lenInput, mount, numField, selectField, sizeReference, textField } from './dom.js';
+import { PRECISIONS, fmtLen, fmtLenU, isImperial, parseLen, rateToMm, rateValue, unitName } from '../engine/units.js';
+import { setPrefs, setShop, setState, state, updateProject } from './store.js';
 
 const close = () => setState({ settings: null });
 
@@ -65,21 +67,13 @@ function costCell(m, key, label) {
 function materialRow(m, c) {
   const usedFor = SLOTS.filter((s) => c.materials[s] === m.id).map((s) => SLOT_LABELS[s]);
   const key = (f) => `m${m.id}-${f}`;
-  const num = (label, field, min, { step = 0.5 } = {}) =>
+  // Thickness stays in mm (sheet goods are sold by metric thickness); the
+  // sheet size follows the display units.
+  const num = (label, field, min, { step = 0.5, metric = false } = {}) =>
     h(
       'td',
       { class: 'num' },
-      h('input', {
-        type: 'number',
-        step,
-        'aria-label': label,
-        'data-key': key(field),
-        value: fmtMm(m[field]),
-        onchange: (e) => {
-          const v = parseFloat(e.target.value);
-          if (Number.isFinite(v)) editMaterial(m.id, (m) => (m[field] = Math.max(min, v)));
-        },
-      }),
+      h('input', lenInput(m[field], (v) => editMaterial(m.id, (m) => (m[field] = Math.max(min, v))), { metric, step, key: key(field), 'aria-label': label })),
     );
   return h(
     'tr',
@@ -128,7 +122,7 @@ function materialRow(m, c) {
         MATERIAL_KINDS.filter((k) => k !== EDGE_BAND_KIND).map((k) => h('option', { value: k }, k)),
       ),
     ),
-    num('Thickness', 'thickness', 1),
+    num('Thickness', 'thickness', 1, { metric: true }),
     num('Sheet length', 'sheetLength', 100),
     num('Sheet width', 'sheetWidth', 100),
     costCell(m, key, 'Cost per sheet'),
@@ -182,7 +176,7 @@ function materialLibrary(c) {
             'tr',
             {},
             ['Colour', 'Name', 'Type'].map((t) => h('th', {}, t)),
-            ['Thickness', 'Sheet L', 'Sheet W', '$ / sheet'].map((t) => h('th', { class: 'num' }, t)),
+            [isImperial() ? 'Thickness (mm)' : 'Thickness', 'Sheet L', 'Sheet W', '$ / sheet'].map((t) => h('th', { class: 'num' }, t)),
             ['Grain', 'Used for', ''].map((t) => h('th', {}, t)),
           ),
         ),
@@ -286,7 +280,7 @@ function bandLibrary(c) {
         h(
           'thead',
           {},
-          h('tr', {}, ['Colour', 'Name', 'Type'].map((t) => h('th', {}, t)), ['Thickness', '$ / m'].map((t) => h('th', { class: 'num' }, t)), h('th', {}, 'Used for'), h('th', {})),
+          h('tr', {}, ['Colour', 'Name', 'Type'].map((t) => h('th', {}, t)), [isImperial() ? 'Thickness (mm)' : 'Thickness', '$ / m'].map((t) => h('th', { class: 'num' }, t)), h('th', {}, 'Used for'), h('th', {})),
         ),
         h('tbody', {}, c.library.filter((m) => m.edgeBand).map((m) => bandRow(m, c))),
       ),
@@ -355,9 +349,13 @@ function bandTypeList(c) {
   );
 }
 
-function conNum(c, label, key, get, set) {
-  return numField(label, key, get(c), (v) => editConstruction((c) => set(c, v)), { step: 0.5 });
+/** A length setting (mm), shown in the display units unless `metric`. */
+function conNum(c, label, key, get, set, { metric = false } = {}) {
+  return lenField(label, key, get(c), (v) => editConstruction((c) => set(c, v)), { step: 0.5, metric });
 }
+
+/** A section heading; hardware sections stay in mm and say so in inch mode. */
+const metricHeading = (text) => h('h3', {}, isImperial() ? `${text} (mm)` : text);
 
 /** A price in the construction (0 = not priced). */
 function conCost(c, label, key, get, set) {
@@ -370,7 +368,7 @@ function slideSection(c) {
   return h(
     'section',
     {},
-    h('h3', {}, 'Slides'),
+    metricHeading('Slides'),
     h(
       'div',
       { class: 'fields' },
@@ -404,13 +402,13 @@ function drawerBoxSection(c) {
   return h(
     'section',
     {},
-    h('h3', {}, 'Drawer boxes'),
+    metricHeading('Drawer boxes'),
     h(
       'div',
       { class: 'fields' },
       textField('Side heights', 'sideHeights', c.drawerSideHeights.join(', '), setHeights),
-      conNum(c, 'Bottom raise', 'bottomRaise', (c) => c.drawerBottomRaise, (c, v) => (c.drawerBottomRaise = Math.max(0, v))),
-      conNum(c, 'Front − side clearance', 'frontClear', (c) => c.drawerFrontClearance, (c, v) => (c.drawerFrontClearance = Math.max(0, v))),
+      conNum(c, 'Bottom raise', 'bottomRaise', (c) => c.drawerBottomRaise, (c, v) => (c.drawerBottomRaise = Math.max(0, v)), { metric: true }),
+      conNum(c, 'Front − side clearance', 'frontClear', (c) => c.drawerFrontClearance, (c, v) => (c.drawerFrontClearance = Math.max(0, v)), { metric: true }),
     ),
     h(
       'p',
@@ -448,11 +446,11 @@ function drawerSizeSection(c) {
   return h(
     'section',
     {},
-    h('h3', {}, 'Drawer sizes'),
+    metricHeading('Drawer sizes'),
     h(
       'div',
       { class: 'fields' },
-      conNum(c, 'Unit', 'drawerUnit', (c) => c.drawerUnit, (c, v) => (c.drawerUnit = Math.max(1, v))),
+      conNum(c, 'Unit', 'drawerUnit', (c) => c.drawerUnit, (c, v) => (c.drawerUnit = Math.max(1, v)), { metric: true }),
       numField('Top drawer', 'drawerTopUnits', c.drawerTopUnits, (v) => editConstruction((c) => (c.drawerTopUnits = Math.max(0, Math.round(v))))),
     ),
     h(
@@ -525,7 +523,7 @@ function hingeSection(c) {
   return h(
     'section',
     {},
-    h('h3', {}, 'Cup boring & plates'),
+    metricHeading('Cup boring & plates'),
     h(
       'div',
       { class: 'fields' },
@@ -540,10 +538,10 @@ function hingeSection(c) {
         (v) => editConstruction((c) => (c.hinge.boring = v)),
         { wide: true },
       ),
-      conNum(c, hg.boring === 'manual' ? 'K (edge to cup)' : 'Preferred K', 'hingeK', (c) => c.hinge.k, (c, v) => (c.hinge.k = Math.min(Math.max(v, kMin), kMax))),
+      conNum(c, hg.boring === 'manual' ? 'K (edge to cup)' : 'Preferred K', 'hingeK', (c) => c.hinge.k, (c, v) => (c.hinge.k = Math.min(Math.max(v, kMin), kMax)), { metric: true }),
       textField('Plate heights', 'plateHeights', hg.plateHeights.join(', '), setPlates),
-      conNum(c, 'Cup depth', 'cupDepth', (c) => c.hinge.cupDepth, (c, v) => (c.hinge.cupDepth = Math.max(1, v))),
-      conNum(c, 'Hinge from door end', 'hingeEnd', (c) => c.hinge.endOffset, (c, v) => (c.hinge.endOffset = Math.max(hg.cupDiameter, v))),
+      conNum(c, 'Cup depth', 'cupDepth', (c) => c.hinge.cupDepth, (c, v) => (c.hinge.cupDepth = Math.max(1, v)), { metric: true }),
+      conNum(c, 'Hinge from door end', 'hingeEnd', (c) => c.hinge.endOffset, (c, v) => (c.hinge.endOffset = Math.max(hg.cupDiameter, v)), { metric: true }),
       conCost(c, '$ / hinge', 'hingeCost', (c) => c.hinge.cost, (c, v) => (c.hinge.cost = v)),
       conCost(c, '$ / plate', 'plateCost', (c) => c.hinge.plateCost, (c, v) => (c.hinge.plateCost = v)),
     ),
@@ -578,9 +576,9 @@ function endPanelSection(c) {
     h(
       'p',
       { class: 'muted' },
-      `Cut from the front material. Depth = case + ${fmtMm(ep.frontOverhang)} + ${fmtMm(ep.rearScribe)} scribe; ` +
-        `base and tall panels are ${fmtMm(ep.floorScribe)} taller for scribing to the floor` +
-        (ep.toeKick ? ` and notched ${fmtMm(ep.toeKickDepth)} deep × (base height + ${fmtMm(ep.floorScribe)}) for the toe kick.` : '.') +
+      `Cut from the front material. Depth = case + ${fmtLen(ep.frontOverhang)} + ${fmtLen(ep.rearScribe)} scribe; ` +
+        `base and tall panels are ${fmtLen(ep.floorScribe)} taller for scribing to the floor` +
+        (ep.toeKick ? ` and notched ${fmtLen(ep.toeKickDepth)} deep × (base height + ${fmtLen(ep.floorScribe)}) for the toe kick.` : '.') +
         ' Turn them on per cabinet.',
     ),
   );
@@ -662,18 +660,7 @@ function cabinetSizesSection(c) {
     h(
       'td',
       { class: 'num' },
-      h('input', {
-        type: 'number',
-        step: 1,
-        'aria-label': `${kind} ${field}`,
-        'data-key': `size-${kind}-${field}`,
-        value: fmtMm(c.cabinetSizes[kind][field]),
-        onchange: (e) => {
-          const v = parseFloat(e.target.value);
-          if (Number.isFinite(v)) set(kind, field, min)(v);
-          else setState({});
-        },
-      }),
+      h('input', lenInput(c.cabinetSizes[kind][field], set(kind, field, min), { key: `size-${kind}-${field}`, 'aria-label': `${kind} ${field}` })),
     );
   return h(
     'section',
@@ -702,7 +689,7 @@ function cabinetSizesSection(c) {
             h(
               'td',
               { class: 'num used' },
-              floor && toe ? `${fmtMm(c.cabinetSizes[kind].boxHeight + toe)} (+${fmtMm(toe)} toe kick)` : fmtMm(c.cabinetSizes[kind].boxHeight),
+              floor && toe ? `${fmtLen(c.cabinetSizes[kind].boxHeight + toe)} (+${fmtLen(toe)} toe kick)` : fmtLen(c.cabinetSizes[kind].boxHeight),
             ),
           );
         }),
@@ -727,15 +714,11 @@ function spaceSizesSection(c) {
       'td',
       { class: 'num' },
       h('input', {
-        type: 'number',
-        min: 0,
-        step: 1,
-        'aria-label': `${SPACE_PRESETS[preset].label} ${field}`,
-        'data-key': `space-${preset}-${field}`,
-        value: own ? fmtMm(own) : '',
-        placeholder: fmtMm(run),
+        ...lenInput(own, () => {}, { key: `space-${preset}-${field}`, 'aria-label': `${SPACE_PRESETS[preset].label} ${field}` }),
+        value: own ? (isImperial() ? fmtLen(own) : fmtMm(own)) : '',
+        placeholder: isImperial() ? fmtLen(run) : fmtMm(run),
         onchange: (e) => {
-          const v = e.target.value === '' ? 0 : parseFloat(e.target.value);
+          const v = e.target.value.trim() === '' ? 0 : isImperial() ? parseLen(e.target.value) : parseFloat(e.target.value);
           if (Number.isFinite(v)) editConstruction((c) => (c.spaceSizes = { ...c.spaceSizes, [preset]: { ...c.spaceSizes?.[preset], [field]: Math.max(0, v) } }));
           else setState({});
         },
@@ -790,7 +773,7 @@ function frontStyleSection(c) {
   const shaker = c.frontStyle === 'shaker';
   // Inch sizes in mm need two decimals (2 1/4" = 57.15).
   const shNum = (label, key, prop, min) =>
-    numField(label, key, sh[prop], (v) => editConstruction((c) => (c.shaker[prop] = Math.max(min, v))), { step: 0.01, format: (v) => String(Math.round(v * 100) / 100) });
+    lenField(label, key, sh[prop], (v) => editConstruction((c) => (c.shaker[prop] = Math.max(min, v))), { step: 0.01, mmFormat: (v) => String(Math.round(v * 100) / 100) });
   return h(
     'section',
     {},
@@ -812,8 +795,8 @@ function frontStyleSection(c) {
       ? h(
           'p',
           { class: 'muted' },
-          `A frame of the front material (${sh.frame} mm stiles and rails, opening cut through) with a ${sh.rabbet} mm rabbet around the opening on the back, ` +
-            `as deep as the door panel material (Sheet materials) is thick, so the center panel's back sits flush. The panel is ${sh.clearance} mm short of the rabbet all round, ` +
+          `A frame of the front material (${fmtLenU(sh.frame)} stiles and rails, opening cut through) with a ${fmtLenU(sh.rabbet)} rabbet around the opening on the back, ` +
+            `as deep as the door panel material (Sheet materials) is thick, so the center panel's back sits flush. The panel is ${fmtLenU(sh.clearance)} short of the rabbet all round, ` +
             `its corners rounded to the CNC tool's radius like the rabbet's. Fronts whose opening would be under the min. opening (a short top drawer) stay slab. Shaker frames are not edge banded.`,
         )
       : null,
@@ -889,14 +872,14 @@ function systemSection(c) {
   return h(
     'section',
     {},
-    h('h3', {}, 'System holes'),
+    metricHeading('System holes'),
     h(
       'div',
       { class: 'fields' },
-      conNum(c, 'Front setback', 'sysSetback', (c) => c.system.frontSetback, (c, v) => (c.system.frontSetback = v)),
-      conNum(c, 'Spacing', 'sysSpacing', (c) => c.system.spacing, (c, v) => (c.system.spacing = Math.max(8, v))),
-      conNum(c, 'Grid origin', 'sysOrigin', (c) => c.system.origin, (c, v) => (c.system.origin = v)),
-      conNum(c, 'Hole Ø', 'sysDia', (c) => c.system.diameter, (c, v) => (c.system.diameter = Math.max(1, v))),
+      conNum(c, 'Front setback', 'sysSetback', (c) => c.system.frontSetback, (c, v) => (c.system.frontSetback = v), { metric: true }),
+      conNum(c, 'Spacing', 'sysSpacing', (c) => c.system.spacing, (c, v) => (c.system.spacing = Math.max(8, v)), { metric: true }),
+      conNum(c, 'Grid origin', 'sysOrigin', (c) => c.system.origin, (c, v) => (c.system.origin = v), { metric: true }),
+      conNum(c, 'Hole Ø', 'sysDia', (c) => c.system.diameter, (c, v) => (c.system.diameter = Math.max(1, v)), { metric: true }),
       checkboxField('Rear line', 'sysRear', c.system.rearLine, (on) => editConstruction((c) => (c.system.rearLine = on))),
     ),
     h('p', { class: 'muted' }, 'Hole lines run up both sides this far from the front (and the rear, when on), one spacing apart from the grid origin. Hinge plates and slides screw into them.'),
@@ -917,7 +900,7 @@ function cornerSection(c) {
       h(
         'p',
         { class: 'muted' },
-        `L-shaped, with a door on each leg: ${fmtMm(base.width)} along its wall × ${fmtMm(base.corner.return)} along the next, ${fmtMm(base.depth)} deep. ` +
+        `L-shaped, with a door on each leg: ${fmtLen(base.width)} along its wall × ${fmtLen(base.corner.return)} along the next, ${fmtLen(base.depth)} deep. ` +
           'The return door tucks behind the first door in the inside corner.',
       ),
     ),
@@ -929,8 +912,8 @@ function cornerSection(c) {
       h(
         'p',
         { class: 'muted' },
-        `${fmtMm(wall.width)} × ${fmtMm(wall.corner.return)}, as deep as wall cabinets (${fmtMm(wall.depth)}), with one ` +
-          `${fmtMm(cornerDoors(wall, c).door)} mm door on the 45° diagonal (use a 45° hinge plate).`,
+        `${fmtLen(wall.width)} × ${fmtLen(wall.corner.return)}, as deep as wall cabinets (${fmtLen(wall.depth)}), with one ` +
+          `${fmtLenU(cornerDoors(wall, c).door)} door on the 45° diagonal (use a 45° hinge plate).`,
       ),
     ),
     h(
@@ -1113,8 +1096,17 @@ function resetConstruction() {
 /** The router's settings: machine, tool, feeds and speeds, heights, tabs, entry. */
 function cncSections(c) {
   const cfg = c.cnc;
+  // Lengths in the display units; counts, RPM and percentages as numbers.
   const num = (label, key, step = 1, min = 0) =>
+    lenField(label, `cnc-${key}`, cfg[key], (v) => editConstruction((c) => (c.cnc[key] = Math.max(min, v))), { step });
+  const plain = (label, key, step = 1, min = 0) =>
     numField(label, `cnc-${key}`, cfg[key], (v) => editConstruction((c) => (c.cnc[key] = Math.max(min, v))), { step });
+  // Feeds are stored in mm/min and shown in mm/min or in/min.
+  const rate = (label, key, min) =>
+    numField(`${label} ${unitName()}/min`, `cnc-${key}`, rateValue(cfg[key]), (v) => editConstruction((c) => (c.cnc[key] = Math.max(min, rateToMm(v)))), {
+      step: isImperial() ? 0.1 : 1,
+      format: (v) => String(v),
+    });
   const pick = (label, key, options) => selectField(label, `cnc-${key}`, options, cfg[key], (v) => editConstruction((c) => (c.cnc[key] = v)));
   const group = (title, fields, note) =>
     h('section', {}, h('h3', {}, title), h('div', { class: 'fields' }, fields), note ? h('p', { class: 'muted' }, note) : null);
@@ -1124,16 +1116,16 @@ function cncSections(c) {
     group(
       'Table & stock',
       [num('Table X', 'tableX'), num('Table Y', 'tableY'), num('Stock X', 'stockX'), num('Stock Y', 'stockY'), num('Margin', 'margin', 0.5), num('Part spacing', 'spacing', 0.5)],
-      `Parts are nested on the stock. With the lead-in arc on, parts need ${fmtMm(d + lead)} mm between them and ${fmtMm(d / 2 + lead)} mm from the stock edge.`,
+      `Parts are nested on the stock. With the lead-in arc on, parts need ${fmtLenU(d + lead)} between them and ${fmtLenU(d / 2 + lead)} from the stock edge.`,
     ),
     group('Tool, feeds & speeds', [
       num('Tool Ø', 'toolDiameter', 0.1, 0.1),
-      num('Spindle RPM', 'rpm', 500),
-      num('Feed mm/min', 'feed', 50, 1),
-      num('Plunge mm/min', 'plungeFeed', 50, 1),
-      num('Rapid mm/min', 'rapidFeed', 100, 1),
+      plain('Spindle RPM', 'rpm', 500),
+      rate('Feed', 'feed', 1),
+      rate('Plunge', 'plungeFeed', 1),
+      rate('Rapid', 'rapidFeed', 1),
       num('Pass depth', 'passDepth', 0.5, 0.1),
-      num('Spindle delay s', 'spindleDelay', 1),
+      plain('Spindle delay s', 'spindleDelay', 1),
     ]),
     group(
       'Drilling',
@@ -1152,7 +1144,7 @@ function cncSections(c) {
     ),
     group(
       'Dados',
-      [num('Stepover %', 'stepover', 5, 5)],
+      [plain('Stepover %', 'stepover', 5, 5)],
       'Dadoes and rabbets are cleared from the top, back and forth this share of the tool apart, ramping in like the cut-out. Through notches (the end panels’ toe kick) are part of the cut-out.',
     ),
     group('Heights', [num('Safe Z', 'safeZ', 1), num('Clearance Z', 'clearZ', 0.5), num('Cut through', 'cutThrough', 0.1)]),
@@ -1177,8 +1169,82 @@ function cncSections(c) {
   ];
 }
 
+// ---- units page ------------------------------------------------------------------
+
+const PRECISION_LABELS = { 8: '1/8"', 16: '1/16"', 32: '1/32"', 0: 'Decimal (0.001")' };
+
+/** Display units for the whole shop, and the US standard sizes preset. */
+function unitsSections() {
+  const { units, precision } = state.prefs;
+  const example = [600, 19.05, 3657.6].map((mm) => `${fmtMm(mm)} mm → ${fmtLen(mm)}`).join(' · ');
+  const useUs = async () => {
+    if (!confirm('Use US standard sizes for new jobs? This changes the shop defaults for cabinet sizes, toe kick, appliance spaces, corner cabinets and the countertop. The open job and its cabinets stay as they are.')) return;
+    try {
+      await setShop(usStandardSizes(JSON.parse(JSON.stringify(state.shop))));
+      setState({ unitsNote: 'New jobs now start with US standard sizes.' });
+    } catch (e) {
+      setState({ unitsNote: `Not saved: ${e.message}` });
+    }
+  };
+  return [
+    h(
+      'section',
+      {},
+      h('h3', {}, 'Display units'),
+      h(
+        'div',
+        { class: 'fields' },
+        selectField(
+          'Units',
+          'prefUnits',
+          [
+            ['mm', 'Millimetres'],
+            ['in', 'Inches'],
+          ],
+          units,
+          (v) => setPrefs({ units: v }),
+        ),
+        units === 'in'
+          ? selectField(
+              'Inch precision',
+              'prefPrecision',
+              PRECISIONS.map((p) => [p, PRECISION_LABELS[p]]),
+              precision,
+              (v) => setPrefs({ precision: Number(v) }),
+            )
+          : null,
+      ),
+      h(
+        'p',
+        { class: 'muted' },
+        'For every job in the shop. Sizes are still saved in millimetres, so switching changes only how they show and how typed numbers are read. ' +
+          (units === 'in'
+            ? `Over 36" shows as feet and inches. Type 23.5, 23 1/2, 4' 6" or 600mm. The 32mm system, hinges, drawers and slides, and material thicknesses stay in mm. ${example}`
+            : 'In inches, fields take fractions (23 1/2), feet (4\' 6") and mm (600mm).'),
+      ),
+    ),
+    h(
+      'section',
+      {},
+      h('h3', {}, 'US standard sizes'),
+      h(
+        'p',
+        { class: 'muted' },
+        'Sets the shop defaults for new jobs: 24" wide cabinets, 34 1/2" base height with a 4" toe kick, 30" wall and 84" tall cabinets, 24" deep bases (12" walls) with the doors, ' +
+          '24" dishwasher, 30" range, 36" fridge, 24" corner walls and a 1 1/2" countertop with a 1" overhang. Doors up to 24" stay single. The open job is not changed.',
+      ),
+      h('div', { class: 'add-row' }, h('button', { onclick: useUs }, 'Use US standard sizes for new jobs')),
+      state.unitsNote ? h('p', {}, state.unitsNote) : null,
+    ),
+  ];
+}
+
 // The settings pages, in nav groups. Each page is a column of sections.
 const PAGES = [
+  {
+    group: 'Shop',
+    pages: [{ id: 'units', label: 'Units', intro: 'How lengths are shown and typed.', sections: unitsSections }],
+  },
   {
     group: 'Cabinets',
     pages: [
@@ -1211,7 +1277,8 @@ const PAGES = [
         id: 'cnc',
         label: 'CNC router',
         intro:
-          'The CNC router (GRBL): Z0 on top of the material, X0 Y0 at the front-left corner of the stock. Lengths in mm (49 in = 1244.6 mm). ' +
+          'The CNC router (GRBL): Z0 on top of the material, X0 Y0 at the front-left corner of the stock. ' +
+          'Lengths and feeds follow the display units (Settings → Units), and so does the G-code: G21 (mm) or G20 (inches). ' +
           'Which operations run is chosen in the CNC view.',
         sections: cncSections,
       },

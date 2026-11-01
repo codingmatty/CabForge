@@ -388,6 +388,8 @@ table.paint-table button { padding: 2px 8px; }
 .paint-part-row select { flex: 0 1 180px; }
 .paint-edges { display: inline-flex; align-items: center; gap: 4px; }
 table.size-table td.num input { width: 90px; }
+/* Inch fields hold feet and fractions (6' 8 23/32"). */
+table.library td.num input.len { width: 112px; }
 table.size-table td.used { white-space: nowrap; }
 table.drawer-size-table { width: 100%; max-width: 440px; table-layout: fixed; }
 table.drawer-size-table th, table.drawer-size-table td { padding: 3px 4px; }

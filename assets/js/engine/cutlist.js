@@ -2,6 +2,7 @@
 
 import { bandThickness, materialById, partMaterial } from './model.js';
 import { cutSize, edgeCode } from './part.js';
+import { csvLen, unitName } from './units.js';
 
 /** Rounds to 0.1 mm so float noise doesn't split identical parts. */
 const keyMm = (v) => Math.round(v * 10);
@@ -92,9 +93,16 @@ export function cutList(cabinets, c) {
   };
 }
 
-export function cutListCsv(list) {
+/** The cut list as CSV: lengths in mm, or (units 'in') decimal inches with the
+ *  unit in the headers. Thickness stays in mm. */
+export function cutListCsv(list, { units = unitName() } = {}) {
   const esc = (s) => (/[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
-  const lines = ['Qty,Part,Material,Thickness,Length,Width,Cut length,Cut width,Edge banding,Edge band,Cabinets'];
+  const len = (v) => csvLen(v, units);
+  const lines = [
+    units === 'in'
+      ? 'Qty,Part,Material,Thickness (mm),Length (in),Width (in),Cut length (in),Cut width (in),Edge banding,Edge band,Cabinets'
+      : 'Qty,Part,Material,Thickness,Length,Width,Cut length,Cut width,Edge banding,Edge band,Cabinets',
+  ];
   for (const r of list.rows) {
     lines.push(
       [
@@ -102,10 +110,10 @@ export function cutListCsv(list) {
         esc(r.name),
         esc(r.material),
         r.thickness,
-        r.length.toFixed(1),
-        r.width.toFixed(1),
-        r.cutLength.toFixed(1),
-        r.cutWidth.toFixed(1),
+        len(r.length),
+        len(r.width),
+        len(r.cutLength),
+        len(r.cutWidth),
         esc(r.edges),
         esc(r.band),
         esc(r.cabinets.join('; ')),

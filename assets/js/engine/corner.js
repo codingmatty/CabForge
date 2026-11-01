@@ -20,6 +20,7 @@
 import { BuildError } from './build.js';
 import { defaultConstruction, fmtMm, newCabinet, thickness } from './model.js';
 import { EDGES, addBore, box } from './part.js';
+import { fmtLenU } from './units.js';
 
 const S = Math.SQRT1_2;
 
@@ -152,9 +153,9 @@ export function cornerParts(b) {
   const ft = thickness(c, 'front');
   const r = c.reveals;
   const diagonal = spec.corner.type === 'diagonal';
-  if (!(ch >= 0 && ch < Math.min(W, W2) - d)) throw new BuildError(`${spec.name}: the corner chamfer must be between 0 and ${fmtMm(Math.min(W, W2) - d)} mm`);
-  if (W2 < d + 100) throw new BuildError(`${spec.name}: the return must be at least ${fmtMm(d + 100)} mm`);
-  if (W < d + 100) throw new BuildError(`${spec.name}: the width must be at least ${fmtMm(d + 100)} mm`);
+  if (!(ch >= 0 && ch < Math.min(W, W2) - d)) throw new BuildError(`${spec.name}: the corner chamfer must be between 0 and ${fmtLenU(Math.min(W, W2) - d)}`);
+  if (W2 < d + 100) throw new BuildError(`${spec.name}: the return must be at least ${fmtLenU(d + 100)}`);
+  if (W < d + 100) throw new BuildError(`${spec.name}: the width must be at least ${fmtLenU(d + 100)}`);
 
   // The return, seen as on the next wall: x along it from the corner, z out of it.
   const ret = { origin: [W, 0], u: [0, 1], n: [-1, 0] };
