@@ -49,6 +49,9 @@ export const state = {
    *  precision (8, 16, 32 = fractions; 0 = decimal). Saved apart from the
    *  shop's construction standards. */
   prefs: { units: 'mm', precision: 32 },
+  /** The AI chat as the server reports it: { enabled, provider, model, limit, used }. */
+  ai: { enabled: false },
+  chatOpen: false,
   saveStatus: 'saved', // 'saved' | 'saving' | 'error'
   saveError: '',
 };
@@ -311,6 +314,8 @@ export async function boot() {
     // keep mm: the shop load below reports a server that can't be reached
   }
   applyPrefs();
+  // The chat is optional: no key (or an older server) just leaves it off.
+  api.ai().then((ai) => setState({ ai }), () => {});
   try {
     const shop = await api.getShop();
     if (shop) {

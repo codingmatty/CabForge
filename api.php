@@ -14,6 +14,8 @@ declare(strict_types=1);
  *   GET    api.php?action=project&id=ID     -> { project }
  *   PUT    api.php?action=project&id=ID     <- project
  *   DELETE api.php?action=project&id=ID
+ *   GET    api.php?action=ai                -> { enabled, provider, model, limit, used, reason? }
+ *   POST   api.php?action=chat              <- one chat turn; streams server-sent events (lib/Ai.php)
  *
  * Writes need a JSON body and the X-CabForge: 1 header. Browsers won't send
  * a custom header cross-site without a CORS preflight, which this API never
@@ -21,10 +23,13 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/lib/Storage.php';
+require __DIR__ . '/lib/Ai.php';
 
+use CabForge\Ai;
 use CabForge\Storage;
 
-const MAX_BODY_BYTES = 2_000_000;
+// Chat history with photos travels in projects and chat requests.
+const MAX_BODY_BYTES = 10_000_000;
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -72,13 +77,53 @@ function readJsonBody(): object
 }
 
 $storage = new Storage(__DIR__ . '/data');
+$ai = new Ai(__DIR__, __DIR__ . '/data');
+
+/** Streams one chat turn as server-sent events. */
+function streamChat(Ai $ai, object $req): never
+{
+    @ini_set('zlib.output_compression', '0');
+    @ini_set('output_buffering', '0');
+    while (ob_get_level() > 0) {
+        ob_end_flush();
+    }
+    ignore_user_abort(false);
+    set_time_limit(0);
+    header('Content-Type: text/event-stream; charset=utf-8');
+    header('Cache-Control: no-store');
+    // Tell nginx-style proxies not to hold the stream back.
+    header('X-Accel-Buffering: no');
+    $emit = static function (string $event, array $data): void {
+        echo "event: $event\ndata: " . json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION) . "\n\n";
+        flush();
+    };
+    try {
+        $ai->turn($req, $emit);
+    } catch (Throwable $e) {
+        error_log('CabForge AI: ' . $e->getMessage());
+        $emit('error', ['message' => 'Server error']);
+    }
+    exit;
+}
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = (string) ($_GET['action'] ?? '');
 
 try {
     switch ($action) {
         case 'health':
-            respond(200, ['ok' => true, 'php' => PHP_VERSION, 'writable' => $storage->writable()]);
+            respond(200, ['ok' => true, 'php' => PHP_VERSION, 'writable' => $storage->writable(), 'ai' => $ai->config()['enabled']]);
+
+        case 'ai':
+            if ($method === 'GET') {
+                respond(200, $ai->config() + ['limit' => $ai->dailyLimit(), 'used' => $ai->usage()['count']]);
+            }
+            break;
+
+        case 'chat':
+            if ($method === 'POST') {
+                streamChat($ai, readJsonBody());
+            }
+            break;
 
         case 'shop':
             if ($method === 'GET') {

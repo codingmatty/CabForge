@@ -34,6 +34,7 @@ import { cornerDoors, newCorner } from '../assets/js/engine/corner.js';
 import { addIsland, addWall, ensureRoom, locations } from '../assets/js/engine/room.js';
 import { cncGroups, cncNesting, gcode, notchedOutline, onStock, sheetProgram, stockOutline, stockRect, tablePart } from '../assets/js/engine/cnc.js';
 import { solidcraftDesign } from '../assets/js/engine/solidcraft.js';
+import { AI_TOOLS, ToolError, layoutSummary, runTool, systemPrompt } from '../assets/js/engine/aitools.js';
 import { MM_PER_IN, fmtLen, fmtLenU, fmtSize, formatInches, parseLen, setUnits } from '../assets/js/engine/units.js';
 import { supplies, suppliesCsv } from '../assets/js/engine/supplies.js';
 import { addCabinet, baseSource, buildAll, emptyProject, insertCabinet, jobFor, maxBoardLength, moveCabinet, newProject, placeAfter, placedParts, splitBoards, placedAfter, projectCutList, relayout, resizeCabinet, runNeighbours } from '../assets/js/engine/project.js';
@@ -2275,6 +2276,98 @@ test('units: cut list CSV in inches has decimal inches and unit headers', () => 
   const cols = row.split(',');
   assertApprox(Number(cols[4]), Math.round((r.length / MM_PER_IN) * 1000) / 1000);
   assert(cutListCsv(list).startsWith('Qty,Part,Material,Thickness,Length,'), 'mm CSV unchanged');
+});
+
+// ---- AI tools --------------------------------------------------------------
+
+/** Runs a tool and expects it to fail with a message matching re. */
+function toolFails(p, name, input, re) {
+  try {
+    runTool(p, buildAll(p), name, input);
+  } catch (e) {
+    assert(e instanceof ToolError, `${name} threw ${e}`);
+    assert(re.test(e.message), `${name}: ${e.message}`);
+    return;
+  }
+  assert(false, `${name} should have failed`);
+}
+
+test('ai tools: schemas are well formed and names unique', () => {
+  const names = AI_TOOLS.map((t) => t.name);
+  assertEq(new Set(names).size, names.length);
+  for (const t of AI_TOOLS) assert(t.schema.type === 'object' && typeof t.description === 'string', t.name);
+  assert(systemPrompt().includes('millimetres'));
+});
+
+test('ai tools: lay out a wall with a sink base, drawer bank and dishwasher', () => {
+  const p = emptyProject(defaultConstruction());
+  const run = (name, input) => runTool(p, buildAll(p), name, input);
+  run('update_room', { action: 'update_wall', id: 'w1', length: '3000mm' });
+  const a = run('add_cabinet', { kind: 'base', width: '900mm', name: 'Sink base', fronts: [{ type: 'door', doors: 2, shelves: 0 }] });
+  assert(a.change.includes('Sink base'));
+  const sink = p.cabinets[0];
+  run('add_cabinet', { kind: 'base', width: 600, fronts: [{ type: 'drawer' }, { type: 'drawer' }, { type: 'drawer' }] });
+  run('add_item', { type: 'dishwasher', after_id: sink.id });
+  assertEq(p.cabinets.map((c) => c.kind), ['base', 'space', 'base'], 'dishwasher right after the sink');
+  const xs = p.cabinets.map((c) => c.x);
+  assertApprox(xs[1], 900);
+  assertApprox(xs[2], 900 + p.cabinets[1].width);
+  assert(buildAll(p).every((b) => b.cabinet), 'everything builds');
+  const text = layoutSummary(p, buildAll(p));
+  assert(text.includes('"Sink base"') && text.includes('dishwasher space'), text);
+});
+
+test('ai tools: inch lengths, resize, move and remove', () => {
+  withUnits({ system: 'in', precision: 16 }, () => {
+    const p = emptyProject(defaultConstruction());
+    const run = (name, input) => runTool(p, buildAll(p), name, input);
+    run('add_cabinet', { kind: 'base', width: '24"' });
+    run('add_cabinet', { kind: 'base', width: 18 });
+    const [a, b] = p.cabinets;
+    assertApprox(a.width, 609.6);
+    assertApprox(b.width, 18 * MM_PER_IN, 'bare number is inches');
+    run('update_cabinet', { id: a.id, width: '30 in', height: `2' 10 1/2"` });
+    assertApprox(a.width, 762);
+    assertApprox(a.height, 876.3);
+    assertApprox(b.x, 762, 'the next one moved along');
+    run('move_cabinet', { id: b.id, after_id: 0 });
+    assertEq(p.cabinets[0].id, b.id, 'moved to the start');
+    assertApprox(p.cabinets[1].x, 18 * MM_PER_IN);
+    run('remove_cabinet', { id: b.id });
+    assertEq(p.cabinets.length, 1);
+    assertApprox(p.cabinets[0].x, 0, 'the run closed up');
+  });
+});
+
+test('ai tools: islands, corner cabinets and settings', () => {
+  const p = emptyProject(defaultConstruction());
+  const run = (name, input) => runTool(p, buildAll(p), name, input);
+  run('update_room', { action: 'add_wall', length: '2400mm', turn: 'inside' });
+  const isl = run('update_room', { action: 'add_island', type: 'double', x: '1000mm', y: '2000mm' });
+  const islandId = isl.result.match(/i\d+/)[0];
+  run('add_cabinet', { kind: 'corner_base', at: 'w1' });
+  run('add_cabinet', { kind: 'base', at: islandId });
+  assert(p.cabinets[0].corner, 'corner base');
+  assertEq(p.cabinets[1].at, islandId);
+  run('update_settings', { changes: [{ path: 'frontStyle', value: 'shaker' }, { path: 'toeKickHeight', value: '100mm' }, { path: 'materials.case', value: 'baltic birch' }] });
+  assertEq(p.construction.frontStyle, 'shaker');
+  assertApprox(p.construction.toeKickHeight, 100);
+  assertEq(p.construction.materials.case, 3);
+  assert(buildAll(p).every((b) => b.cabinet), 'everything builds');
+  assert(run('get_materials_report', {}).result.includes('Edge banding'));
+});
+
+test('ai tools: bad requests fail with a message and change nothing', () => {
+  const p = emptyProject(defaultConstruction());
+  runTool(p, buildAll(p), 'add_cabinet', { kind: 'base' });
+  const before = JSON.stringify(p);
+  toolFails(p, 'add_cabinet', { kind: 'shelf' }, /kind must be/);
+  toolFails(p, 'add_cabinet', { kind: 'base', at: 'Wall 9' }, /No wall or island/);
+  toolFails(p, 'update_cabinet', { id: 99, width: '600mm' }, /No cabinet with id 99/);
+  toolFails(p, 'update_cabinet', { id: p.cabinets[0].id, width: 'wide' }, /not a length/);
+  toolFails(p, 'update_settings', { changes: [{ path: 'toeKickHeight', value: '90mm' }, { path: 'hinge.k', value: 3 }] }, /can't be changed/);
+  toolFails(p, 'update_cabinet', { id: p.cabinets[0].id, fronts: [{ type: 'shelf' }] }, /fronts\[0\]\.type/);
+  assertEq(JSON.stringify(p), before, 'nothing changed');
 });
 
 // Runner

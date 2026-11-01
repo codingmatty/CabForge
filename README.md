@@ -32,6 +32,7 @@ no external libraries, no build step.
 | `index.php` | App shell. Adds a file-time version to asset URLs so deploys show up immediately. |
 | `api.php` | JSON API: saves projects, the shop settings (material library + construction) and the shop preferences (display units). |
 | `lib/Storage.php` | JSON-file storage with atomic writes. |
+| `lib/Ai.php` | Optional AI chat proxy to Anthropic or OpenAI (streams server-sent events). |
 | `data/` | Saved projects (`projects/*.json`), `shop.json` and `prefs.json`. Must be writable by Apache. |
 | `assets/js/engine/` | The parametric engine: specs → parts, 32mm boring, cut list. Pure functions, no DOM. |
 | `assets/js/ui/` | Browser UI: sidebar, settings dialog, projects dialog, SVG elevation and part drawings, WebGL2 3D view. |
@@ -63,6 +64,35 @@ Require valid-user
 ```
 
 and create the password file with `htpasswd -c /etc/apache2/.htpasswd-cabforge yourname`.
+
+### AI chat (optional)
+
+The **AI chat** button appears when the server has an API key. Requests run through `api.php`
+(`lib/Ai.php`), which adds the key and streams the reply; the model's tool calls run in the browser on the
+open job (`assets/js/engine/aitools.js`), through the same engine code as the forms. PHP needs the curl
+extension. Set these as real environment variables (Apache `SetEnv`, php-fpm `env[...]`) or in a `.env`
+file in this folder or in `data/` (see `.env.example`; `.env` is git-ignored and blocked from the web):
+
+| Variable | |
+|---|---|
+| `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Turns the chat on. |
+| `CABFORGE_AI_PROVIDER` | `anthropic` or `openai`; default: whichever key is set, Anthropic first. |
+| `CABFORGE_AI_MODEL` | Default `claude-opus-5-5` (`claude-sonnet-5-5` costs half). Required for OpenAI. |
+| `CABFORGE_AI_DAILY_LIMIT` | Model calls per day across the server (default 200, `0` = no limit), counted in `data/ai-usage.json`. One chat message takes a call per tool round. |
+
+The chat has no login of its own: anyone who can reach the app can spend the key up to the daily limit, so
+keep the app on a private network or behind the Basic Auth above.
+
+The chat can add, resize, move and remove cabinets, fillers, panels and appliance spaces, set fronts and end
+panels, edit walls and islands, change the job's construction settings (materials, default sizes, toe kick,
+front style, reveals, countertop) and answer questions about the job and its materials and costs. Lengths go
+both ways in the shop's units. Photos and sketches can be attached (pasted or dropped too); they are scaled to
+1568 px and saved with the job. Each request lists what it changed and has **Undo** (until the page is
+reloaded); the conversation is saved with the job (**Clear** starts over). The history is kept in the
+provider's own format and only appended to, so switching provider starts a new conversation. Anthropic
+requests opt into server-side fallback (`fallbacks: "default"`) when a safety classifier declines.
+
+Tests: `php tests/ai.test.php` for the proxy.
 
 ## Construction model (defaults)
 

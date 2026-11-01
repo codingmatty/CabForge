@@ -2,6 +2,7 @@
 // from the state on every change.
 
 import { renderCabinetDialog } from './ui/cabinetdialog.js';
+import { renderChat } from './ui/chat.js';
 import { renderCnc } from './ui/cnc.js';
 import { download, gearIcon, h } from './ui/dom.js';
 import { renderElevation } from './ui/elevation.js';
@@ -42,6 +43,7 @@ const exportJson = () => {
   download(`${p.name}.cabforge.json`, 'application/json', JSON.stringify(p, null, 2));
 };
 
+const chatButton = h('button', { class: 'chat-toggle', hidden: true, onclick: () => setState({ chatOpen: !state.chatOpen }), title: 'Design by chat' }, 'AI chat');
 const topbar = h(
   'header',
   { class: 'topbar' },
@@ -50,6 +52,7 @@ const topbar = h(
   status,
   h('div', { class: 'spacer' }),
   h('button', { onclick: showProjects }, 'Projects'),
+  chatButton,
   h('button', { onclick: exportJson }, 'Export JSON'),
   h(
     'button',
@@ -81,11 +84,11 @@ const bottom = h('div', { class: 'bottom' });
 const settingsRoot = h('div');
 const projectsRoot = h('div');
 const cabDialogRoot = h('div');
+const chatRoot = h('div', { class: 'chat-root' });
+const appRoot = h('div', { class: 'app' });
 
 document.getElementById('app').replaceChildren(
-  h(
-    'div',
-    { class: 'app' },
+  (appRoot.append(
     topbar,
     sidebar,
     h(
@@ -95,7 +98,9 @@ document.getElementById('app').replaceChildren(
       h('div', { class: 'view' }, Object.values(panes)),
       bottom,
     ),
+    chatRoot,
   ),
+  appRoot),
   settingsRoot,
   projectsRoot,
   cabDialogRoot,
@@ -124,6 +129,10 @@ function render(opts) {
     panes[id].hidden = state.view !== id;
   });
 
+  chatButton.hidden = !state.ai?.enabled;
+  chatButton.className = state.chatOpen ? 'chat-toggle active' : 'chat-toggle';
+  appRoot.classList.toggle('chat-open', !!(state.chatOpen && state.ai?.enabled));
+  renderChat(chatRoot);
   renderSidebar(sidebar);
   viewer.update();
   renderVisibility(visibilityRoot);

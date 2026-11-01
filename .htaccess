@@ -13,6 +13,11 @@ DirectoryIndex index.php index.html
     Require all denied
 </FilesMatch>
 
+# Secrets (the AI key can live in .env).
+<FilesMatch "^\.env">
+    Require all denied
+</FilesMatch>
+
 <IfModule mod_mime.c>
     AddType text/javascript .js
 </IfModule>

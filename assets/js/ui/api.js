@@ -30,6 +30,7 @@ export const api = {
   saveShop: (shop) => call('PUT', { action: 'shop' }, shop),
   getPrefs: () => call('GET', { action: 'prefs' }).then((d) => d.prefs),
   savePrefs: (prefs) => call('PUT', { action: 'prefs' }, prefs),
+  ai: () => call('GET', { action: 'ai' }),
   listProjects: () => call('GET', { action: 'projects' }).then((d) => d.projects),
   getProject: (id) => call('GET', { action: 'project', id }).then((d) => d.project),
   saveProject: (project) => call('PUT', { action: 'project', id: project.id }, project),
