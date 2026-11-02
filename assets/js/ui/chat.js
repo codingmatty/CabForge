@@ -131,6 +131,13 @@ async function send() {
   const images = attachments;
   snapshots.set(turnId, designJson(state.project));
   draft = '';
+  // mount() keeps a focused field's unsent typing across re-renders; empty
+  // the box itself so the sent text doesn't come back.
+  const box = document.querySelector('[data-key="chat-input"]');
+  if (box) {
+    box.value = '';
+    delete box.dataset.dirty;
+  }
   attachments = [];
   attachError = '';
   const controller = new AbortController();
