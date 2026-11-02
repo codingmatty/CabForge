@@ -3,7 +3,7 @@
 
 import { applianceSketch } from '../engine/appliance.js';
 import { countertops } from '../engine/countertop.js';
-import { effectiveConstruction, partMaterial, thickness } from '../engine/model.js';
+import { effectiveConstruction, frontProjection, partStock } from '../engine/model.js';
 import { isPlinth, partGroup } from '../engine/part.js';
 import { cabinetPlacement, placedParts } from '../engine/project.js';
 import { DEFAULT_WALL_COLOR, locations, placement } from '../engine/room.js';
@@ -121,7 +121,7 @@ function hexRgb(hex) {
 
 /** Material colour, shaded per role so same-material panels stay distinct. */
 function partColor(c, part) {
-  const base = hexRgb(partMaterial(c, part)?.color);
+  const base = hexRgb(partStock(c, part)?.color);
   const k = isPlinth(part.role) && part.material !== 'front' ? 0.55 : part.role === 'back' || part.role === 'drawerBottom' ? 0.88 : 1;
   return base.map((v) => v * k);
 }
@@ -556,7 +556,7 @@ export class Viewer3D {
       const map = cabinetPlacement(project, spec);
       const color = i === selected ? HIGHLIGHT : EDGE;
       const c = effectiveConstruction(project.construction, spec.overrides);
-      const sketch = hiddenGroups.has('appliances') ? [] : applianceSketch(spec, { ft: thickness(c, 'front'), top: ct?.enabled === false ? 0 : (ct?.thickness ?? 0) });
+      const sketch = hiddenGroups.has('appliances') ? [] : applianceSketch(spec, { ft: frontProjection(c), top: ct?.enabled === false ? 0 : (ct?.thickness ?? 0) });
       for (const b of sketch) {
         const tone = APPLIANCE_TONES[b.tone];
         pushMapped(faces, edges, map, (f, e) => pushBox(f, e, b.min, b.size, i === selected ? tint(tone) : tone), i === selected ? HIGHLIGHT : null);

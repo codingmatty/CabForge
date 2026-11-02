@@ -48,6 +48,11 @@ export function roundedRect(length, width, r, steps = 6) {
   );
 }
 
+/** A face frame's stile or rail (solid wood, see project.js faceFrames). */
+export function isFramePart(role) {
+  return role === 'frameStile' || role === 'frameRail';
+}
+
 export function isPlinth(role) {
   return role === 'toeKick' || role === 'plinthRear' || role === 'plinthEnd' || role === 'toeKickCover';
 }
@@ -68,6 +73,7 @@ export const PART_GROUPS = {
   fillers: 'Fillers',
   drawerBoxes: 'Drawer boxes',
   endPanels: 'End panels',
+  faceFrames: 'Face frames',
   // Not part groups: the countertops over the base runs, appliance sketches
   // in their spaces and the room's walls.
   countertop: 'Countertop',
@@ -85,6 +91,7 @@ export function partGroup(role) {
   if (role === 'filler') return 'fillers';
   if (isDrawerBox(role)) return 'drawerBoxes';
   if (role === 'endPanel') return 'endPanels';
+  if (isFramePart(role)) return 'faceFrames';
   return role; // 'back'
 }
 

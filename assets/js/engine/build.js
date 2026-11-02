@@ -1,12 +1,15 @@
 // Construction rules: turns a cabinet spec + construction into parts.
 //
-// Frameless, full-overlay, sides run full height. Bottom/top/stretchers are
+// Frameless with full-overlay fronts unless the construction's cabinetStyle
+// says otherwise: frameless with inset fronts, or a solid wood face frame
+// (rails here, stiles in project.js joinFrames) with inset or overlay fronts.
+// Sides run full height. Bottom/top/stretchers are
 // butt-joined between the sides. Base cabinets get front/rear stretchers
 // instead of a top and stand on a plinth, or on their sides with the toe
 // kick notched into them. The back fits between the sides,
 // flush with the rear.
 
-import { CABINET_KINDS, SLOTS, SLOT_LABELS, caseT, drawerSize, effectiveConstruction, fmtMm, frontSections, frontUnits, material, partBandId, thickness, toeHeight, unitFrontHeight } from './model.js';
+import { CABINET_KINDS, JOINERY, SLOTS, SLOT_LABELS, caseT, drawerSize, effectiveConstruction, fmtMm, frameThickness, frameWood, frontProjection, frontSections, frontSpan, frontUnits, isFaceFrame, isInset, material, partBandId, styleHinge, thickness, toeHeight, unitFrontHeight } from './model.js';
 import { cornerFootprint, cornerParts } from './corner.js';
 import { EDGES, addBore, bandEdges, bandGroup, bores, box, isFront, roundedRect } from './part.js';
 import { fmtLen, fmtLenU } from './units.js';
@@ -106,7 +109,7 @@ export function footprint(spec, jobConstruction) {
       [0, spec.depth + ep.frontOverhang],
     ];
   }
-  const d = spec.depth + (spec.kind === 'filler' || spec.kind === 'space' ? 0 : thickness(c, 'front'));
+  const d = spec.depth + (spec.kind === 'space' ? 0 : spec.kind === 'filler' ? (isFaceFrame(c) ? frameThickness(c) : 0) : frontProjection(c));
   return [
     [0, 0],
     [spec.width, 0],
@@ -122,6 +125,7 @@ export function buildCabinet(spec, jobConstruction) {
   if (spec.kind === 'space') return { specId: spec.id, name: spec.name, parts: [] };
   const c = effectiveConstruction(jobConstruction, spec.overrides);
   let parts;
+  let frame = null;
   if (spec.panel) {
     parts = panelParts(spec, c);
   } else if (spec.kind === 'filler') {
@@ -138,18 +142,26 @@ export function buildCabinet(spec, jobConstruction) {
       if (c.plinth === 'sides' && b.y0 > 0) b.sidesToFloor();
     }
     parts = [b.left, b.right, ...b.parts];
+    frame = b.frame;
   }
   if (c.frontStyle === 'shaker') parts.push(...shakerFronts(parts, c, spec.name));
   // Record the library material so cut lists and views don't need the
   // cabinet's overrides to resolve it, and band the edges the construction
   // asks for (a shaker frame is never banded).
+  // Behind a face frame the case's front edges don't show.
+  const ff = isFaceFrame(c) && !spec.panel;
   for (const p of parts) {
+    if (p.solid) continue; // face frame wood: no sheet material or banding
     p.materialId = c.materials[p.material];
     p.edges = p.shaker ? EDGES.none() : bandEdges(c, p.role);
+    if (ff && (CASE_FRONT_EDGE.has(p.role) || p.divider)) p.edges = { ...p.edges, l1: false };
     p.bandId = partBandId(c, bandGroup(p.role), p.material);
   }
-  return { specId: spec.id, name: spec.name, parts };
+  return { specId: spec.id, name: spec.name, parts, ...(frame ? { frame } : {}) };
 }
+
+// Case parts whose L1 edge is the case front, hidden behind a face frame.
+const CASE_FRONT_EDGE = new Set(['leftSide', 'rightSide', 'bottom', 'top', 'frontStretcher']);
 
 /**
  * Makes the doors and drawer fronts among `parts` 2-piece shaker fronts
@@ -228,7 +240,8 @@ function fillerParts(spec, c) {
   if (w < 5) throw new BuildError(`${spec.name}: filler must be at least 5 mm wide`);
   if (height < 50) throw new BuildError(`${spec.name}: filler is too low for its plinth`);
   const ft = thickness(c, 'front');
-  const parts = [
+  // With a face frame the filler is a wider stile (project.js joinFrames).
+  const parts = isFaceFrame(c) ? [] : [
     {
       name: 'Filler',
       role: 'filler',
@@ -350,6 +363,21 @@ class Builder {
     Object.assign(this, { spec, c, t, w, d, y0, caseH });
     /** Front face of the back panel: the interior starts here. */
     this.interiorZ0 = bt;
+    const ft = thickness(c, 'front');
+    this.ff = isFaceFrame(c);
+    this.inset = isInset(c);
+    this.frameT = this.ff ? frameThickness(c) : 0;
+    /** Where the back of the fronts is: the front of the case (frameless
+     *  overlay), in it (frameless inset), or out on the face frame. */
+    this.frontZ = this.d + frontProjection(c) - ft;
+    /** How far the case's own parts reach forward: behind inset fronts. */
+    this.frontLimit = Math.min(this.frontZ, this.d);
+    /** Underside of the case bottom: raised in a face frame so its top is
+     *  flush with the top of the bottom rail. */
+    this.bottomY = y0 + (this.ff ? Math.max(0, c.faceFrame.bottomRail - t) : 0);
+    if (this.ff && c.faceFrame.bottomRail + c.faceFrame.topRail > caseH - 100) throw new BuildError(`${spec.name}: the face frame rails leave no opening`);
+    /** The blind part of a blind corner's front, from its right edge. */
+    this.blindW = spec.blind ? Math.min(Math.max(spec.blind.width ?? 0, t), w - t - 100) : 0;
     /** Side-local bays for shelves, from fronts(). */
     this.shelfZones = [];
     this.parts = [];
@@ -370,7 +398,7 @@ class Builder {
   }
 
   interiorDepth() {
-    return this.d - this.interiorZ0;
+    return this.frontLimit - this.interiorZ0;
   }
 
   /** Nearest 32mm grid line (side-local x) to `x`. */
@@ -393,7 +421,7 @@ class Builder {
       ops: [],
     });
 
-    this.parts.push(panel('Bottom', 'bottom', y0));
+    this.parts.push(panel('Bottom', 'bottom', this.bottomY));
 
     if (this.spec.kind === 'base') {
       const sw = Math.min(this.c.stretcherWidth, d / 2);
@@ -434,7 +462,8 @@ class Builder {
     const floorStanding = CABINET_KINDS[this.spec.kind].toeKick;
     const below = floorStanding ? ep.floorScribe : 0;
     const length = this.spec.height + below;
-    const width = this.d + ep.frontOverhang + ep.rearScribe;
+    // Flush with the face of a face frame.
+    const width = this.d + (this.ff ? this.frameT : ep.frontOverhang) + ep.rearScribe;
     const z0 = -ep.rearScribe;
     const notch = floorStanding && ep.toeKick && this.y0 > 0 ? [this.y0 + below, ep.toeKickDepth] : null;
     if (notch && !(notch[1] > 0 && notch[1] < width - 50)) {
@@ -525,7 +554,7 @@ class Builder {
     const bt = t;
     const depth = this.c.back.type === 'dado' ? this.c.back.depth : 0;
     const hasTop = this.spec.kind !== 'base';
-    const y = y0 + t - depth;
+    const y = this.bottomY + t - depth;
     // Base: up to the top of the sides (butt joint under the stretchers);
     // wall/tall: into the top, dadoed like the bottom.
     const top = hasTop ? y0 + caseH - t + depth : y0 + caseH;
@@ -633,7 +662,9 @@ class Builder {
    *  `y`: a front stretcher, or a full panel in front of the back. The side
    *  drawings dimension its centre (`divider`). */
   divider(name, role, y, kind) {
-    const { t, w, d } = this;
+    const { t, w } = this;
+    // Behind inset fronts.
+    const d = this.frontLimit;
     const depth = kind === 'stretcher' ? Math.min(this.c.stretcherWidth, d / 2) : d - this.interiorZ0;
     return {
       name,
@@ -649,26 +680,54 @@ class Builder {
     };
   }
 
+  /** Left and right edge of the front area (x in cabinet space): the frame
+   *  opening for a face frame, inside the case for inset fronts, the case
+   *  less the side reveals for overlay ones. A blind corner's blind part is
+   *  left out. Returns { x0, x1, open0, open1 } (open*: the opening). */
+  frontBounds() {
+    const { c, t, w } = this;
+    const g = c.insetGap;
+    const blind = this.blindW;
+    if (this.ff) {
+      const [open0, open1] = [t, w - Math.max(t, blind)];
+      const ov = c.frameOverlay;
+      return this.inset ? { x0: open0 + g, x1: open1 - g, open0, open1 } : { x0: open0 - ov, x1: open1 + ov, open0, open1 };
+    }
+    if (this.inset) return { x0: t + g, x1: w - (blind ? blind + g : t + g), open0: t, open1: w - t };
+    return { x0: c.reveals.side, x1: w - (blind ? blind + c.reveals.gap : c.reveals.side), open0: 0, open1: w };
+  }
+
+  /** Gap between a pair of doors. */
+  pairGap() {
+    return this.inset ? this.c.insetGap : this.c.reveals.gap;
+  }
+
   /**
-   * The front sections from the top down (see frontSections): sized ones
-   * take their height, the rest share what is left; with none to fill it,
-   * the space under the stack stays open. A stretcher or full panel under a
-   * section sits behind the gap to the next. Door and open sections leave
-   * shelf zones for shelves().
+   * The front sections from the top down (see frontSections), each in a cell
+   * of the front span (frontSpan): sized ones take their height, the rest
+   * share what is left; with none to fill it, the space under the stack
+   * stays open. Cells are a face frame's openings (with a middle rail
+   * between two) or, for the other styles, the fronts themselves. A
+   * stretcher or full panel under a section sits behind the gap or rail to
+   * the next. Door and open sections leave shelf zones for shelves().
    */
   fronts() {
     const c = this.c;
-    const r = c.reveals;
     const { t, y0: case0, caseH } = this;
     const name = this.spec.name;
-    const [x0, x1] = [r.side, this.w - r.side];
-    const [y0, y1] = [case0 + r.bottom, case0 + caseH - r.top];
+    const { x0, x1 } = this.frontBounds();
+    const { lo: y0, hi: y1, sep } = frontSpan(c, this.spec);
     const sections = frontSections(this.spec);
     this.shelfZones = [];
-    if (!sections.length) return;
+    if (this.ff) this.frame = { bottom: case0, top: case0 + caseH, ...this.openingX(), z: this.d, thickness: this.frameT, openings: [] };
+    if (this.spec.blind && !this.ff) this.blindPanel(y0, y1);
+    if (!sections.length) {
+      if (this.ff) this.frameRails([]);
+      return;
+    }
     const sized = (sec) => (sec.units > 0 ? unitFrontHeight(c, sec.units) : sec.height > 0 ? sec.height : null);
     const fills = sections.filter((sec) => sized(sec) == null).length;
-    const gaps = (sections.length - 1) * r.gap;
+    const gaps = (sections.length - 1) * sep;
     const fixed = sections.reduce((n, sec) => n + (sized(sec) ?? 0), 0);
     const left = y1 - y0 - gaps - fixed;
     if (!fills && left < -1e-6) {
@@ -684,39 +743,118 @@ class Builder {
     const placed = sections.map((sec) => {
       const fh = sized(sec) ?? left / fills;
       const p = { sec, top, bottom: top - fh };
-      top -= fh + r.gap;
+      top -= fh + sep;
       return p;
     });
-    // Dividers, centred on the gap under their section: [bottom, top] in cabinet space.
+    if (this.ff) this.frameRails(placed);
+    // The front in each cell: the cell itself, inset by the gap in a face
+    // frame, or lapping onto the frame (half of a middle rail less the gap).
+    placed.forEach((p, i) => {
+      [p.fy0, p.fy1] = [p.bottom, p.top];
+      if (!this.ff) return;
+      if (this.inset) {
+        [p.fy0, p.fy1] = [p.bottom + c.insetGap, p.top - c.insetGap];
+        return;
+      }
+      const inner = Math.max(0, Math.min(c.frameOverlay, (sep - c.reveals.gap) / 2));
+      p.fy0 = p.bottom - (i === placed.length - 1 ? c.frameOverlay : inner);
+      p.fy1 = p.top + (i === 0 ? c.frameOverlay : inner);
+    });
+    // Dividers, centred on the gap or rail under their section: [bottom, top] in cabinet space.
     placed.forEach((p, i) => {
       if (i === placed.length - 1 || !['stretcher', 'panel'].includes(p.sec.below)) return;
-      const y = p.bottom - r.gap / 2 - t / 2;
+      const y = p.bottom - sep / 2 - t / 2;
       this.parts.push(this.divider(p.sec.below === 'stretcher' ? 'Stretcher' : 'Divider', p.sec.below === 'stretcher' ? 'frontStretcher' : 'fixedShelf', y, p.sec.below));
       p.divider = [y, y + t];
     });
+    const bottomTop = this.bottomY + t;
     placed.forEach((p, i) => {
       const above = placed[i - 1]?.divider;
       const below = p.divider;
       const last = i === placed.length - 1;
       const { sec } = p;
       if (sec.type === 'drawer') {
-        this.drawer(x0, x1, p.bottom, p.top, sec.units > 0 ? drawerSize(c, sec.units)?.box : undefined, {
-          floor: below ? below[1] : case0 + t,
-          ceiling: above ? above[0] - 5 : case0 + caseH - t - 5,
+        let ceiling = above ? above[0] - 5 : case0 + caseH - t - 5;
+        // The box goes through the frame opening.
+        if (this.ff) ceiling = Math.min(ceiling, p.top - 3);
+        this.drawer(x0, x1, p.fy0, p.fy1, sec.units > 0 ? drawerSize(c, sec.units)?.box : undefined, {
+          floor: below ? below[1] : bottomTop,
+          ceiling,
+          clear: this.ff ? p.bottom + 3 : -Infinity,
         });
         return;
       }
-      if (sec.type === 'door') this.doors(x0, x1, p.bottom, p.top, sec.doors ?? 0);
+      if (sec.type === 'door') this.doors(x0, x1, p.fy0, p.fy1, sec.doors ?? 0);
       // Side-local: up to the divider above, or below the front above; down
       // to the divider below, or the front's bottom edge.
       const hi = i === 0 ? caseH - t : above ? above[0] - case0 : p.top - case0 - t;
-      const lo = last ? t : below ? below[1] - case0 : p.bottom - case0;
+      const lo = last ? bottomTop - case0 : below ? below[1] - case0 : p.bottom - case0;
       this.shelfZones.push({ lo, hi, shelves: sec.shelves, fixedShelves: sec.fixedShelves });
     });
   }
 
+  /** The face frame opening's left and right edge (stiles flush with the
+   *  inside of the case; a blind corner's blind part is a wide stile). */
+  openingX() {
+    const { t, w } = this;
+    return { left: t, right: w - Math.max(t, this.blindW) };
+  }
+
+  /**
+   * The face frame's rails: top, bottom and one between each two sections
+   * (`placed`, the cells top down). They run between the stiles (which
+   * joinFrames in project.js adds), longer by the tenons with mortise and
+   * tenon joints. Records the openings on this.frame.
+   */
+  frameRails(placed) {
+    const { c, frameT: ft, d } = this;
+    const ff = c.faceFrame;
+    const { left, right, bottom, top } = this.frame;
+    const joint = ff.joinery in JOINERY ? ff.joinery : 'pocket';
+    const extra = joint === 'mortise' ? 2 * ff.tenon : 0;
+    const wood = frameWood(c);
+    const rail = (name, y, width) => ({
+      name,
+      role: 'frameRail',
+      material: 'frame',
+      solid: true,
+      woodId: wood?.id ?? null,
+      length: right - left + extra,
+      width,
+      thickness: ft,
+      edges: EDGES.none(),
+      bbox: box([left, y, d], [right - left, width, ft]),
+      ops: [],
+      joint: { type: joint, tenon: joint === 'mortise' ? ff.tenon : 0, dowels: joint === 'dowel' ? ff.dowels : 0, dowelDiameter: ff.dowelDiameter },
+    });
+    this.parts.push(rail('Top rail', top - ff.topRail, ff.topRail));
+    placed.slice(0, -1).forEach((p) => this.parts.push(rail('Middle rail', p.bottom - ff.midRail, ff.midRail)));
+    this.parts.push(rail('Bottom rail', bottom, ff.bottomRail));
+    const cells = placed.length ? placed : [{ bottom: bottom + ff.bottomRail, top: top - ff.topRail }];
+    this.frame.openings = cells.map((p) => ({ x0: left, x1: right, y0: p.bottom, y1: p.top }));
+  }
+
+  /** A blind corner's blind panel (frameless): front material over the
+   *  blind part of the front, in the plane of the doors. */
+  blindPanel(y0, y1) {
+    const { c, w, t } = this;
+    const ft = thickness(c, 'front');
+    const [x0, x1] = this.inset ? [w - this.blindW, w - t - c.insetGap] : [w - this.blindW, w - c.reveals.side];
+    this.parts.push({
+      name: 'Blind panel',
+      role: 'filler',
+      material: 'front',
+      length: y1 - y0,
+      width: x1 - x0,
+      thickness: ft,
+      edges: EDGES.all(),
+      bbox: box([x0, y0, this.frontZ], [x1 - x0, y1 - y0, ft]),
+      ops: [],
+    });
+  }
+
   doors(x0, x1, y0, y1, count) {
-    const gap = this.c.reveals.gap;
+    const gap = this.pairGap();
     const n = count > 0 ? count : x1 - x0 > this.c.maxSingleDoorWidth ? 2 : 1;
     const dw = (x1 - x0 - (n - 1) * gap) / n;
     const dh = y1 - y0;
@@ -725,6 +863,7 @@ class Builder {
     const names = n === 1 ? ['Door'] : ['Left door', 'Right door'];
     for (let i = 0; i < n; i++) {
       const x = x0 + i * (dw + gap);
+      // A blind corner's door hinges away from the blind side.
       const hingeLeft = n === 1 || i < n / 2;
       const door = {
         name: names[i] ?? 'Door',
@@ -734,13 +873,57 @@ class Builder {
         width: dw,
         thickness: ft,
         edges: EDGES.all(),
-        bbox: box([x, y0, this.d], [dw, dh, ft]),
+        bbox: box([x, y0, this.frontZ], [dw, dh, ft]),
         ops: [],
       };
-      const boring = this.hinges(door, hingeLeft);
-      door.hinge = { name: this.c.hinge.name, count: hingeCount(dh), k: boring.k, cupCenter: boring.cupCenter, plate: boring.plate };
+      const sh = styleHinge(this.c);
+      if (sh) {
+        door.hinge = this.styleHinges(door, hingeLeft, sh);
+      } else {
+        const boring = this.hinges(door, hingeLeft);
+        door.hinge = { name: this.c.hinge.name, count: hingeCount(dh), k: boring.k, cupCenter: boring.cupCenter, plate: boring.plate };
+      }
       this.parts.push(door);
     }
+  }
+
+  /** Hinge heights along a door `len` long (from its bottom): hingeCount
+   *  of them, the end ones `endOffset` in, the rest evenly between. */
+  static hingeHeights(len, endOffset) {
+    const n = hingeCount(len);
+    return Array.from({ length: n }, (_, i) => endOffset + ((len - 2 * endOffset) * i) / (n - 1));
+  }
+
+  /**
+   * Hinges for the inset and face-frame styles (styleHinges in the
+   * construction). Concealed hinges: cups `k` from the hinge edge; frameless
+   * inset doors' mounting plates screw to the side on a line the system
+   * setback behind the door, face-frame ones to the frame. Butt or knife
+   * hinges are only marked (part.hingeMarks): they are mortised by hand.
+   */
+  styleHinges(door, hingeLeft, sh) {
+    const len = door.length;
+    const count = hingeCount(len);
+    if (sh.type === 'butt') {
+      const half = (sh.buttLength || 63.5) / 2;
+      const marks = Builder.hingeHeights(len, Math.max(sh.endOffset, half + 10)).map((x) => ({ x, length: 2 * half, edge: hingeLeft ? 'left' : 'right' }));
+      door.hingeMarks = marks;
+      return { name: sh.buttName || 'Butt hinge', type: 'butt', count, style: this.c.cabinetStyle };
+    }
+    const cupCenter = sh.k + sh.cupDiameter / 2;
+    const cupY = hingeLeft ? cupCenter : door.width - cupCenter;
+    const s = this.c.system;
+    const heights = Builder.hingeHeights(len, Math.max(sh.endOffset, sh.cupDiameter));
+    for (const x of heights) addBore(door, x, cupY, sh.cupDiameter, sh.cupDepth, 'hingeCup');
+    if (!this.ff) {
+      // Frameless inset: the plate's two screws, a system spacing apart, on
+      // the system line measured from the back of the door.
+      const side = hingeLeft ? this.left : this.right;
+      const line = s.frontSetback + (this.d - this.frontZ);
+      const doorBottom = door.bbox.min[1] - this.y0;
+      for (const x of heights) for (const dx of [-s.spacing / 2, s.spacing / 2]) addBore(side, doorBottom + x + dx, line, s.diameter, s.depth, 'hingePlate');
+    }
+    return { name: sh.name, type: 'euro', count, k: sh.k, cupCenter, plate: null, frame: this.ff, style: this.c.cabinetStyle };
   }
 
   /** Hinge cups on the door and mounting plate holes on the side. Each
@@ -776,18 +959,26 @@ class Builder {
   slideHoles(slideLength, base) {
     const sl = this.c.slide;
     const s = this.c.system;
+    // The holes are measured from the front of the slide.
+    const back = this.d - this.slideFront();
     for (const side of [this.left, this.right]) {
       for (const z of sl.holes[slideLength] ?? []) {
-        for (const ht of sl.holeHeights) addBore(side, base + ht - this.y0, z, s.diameter, s.depth, 'slide');
+        for (const ht of sl.holeHeights) addBore(side, base + ht - this.y0, z + back, s.diameter, s.depth, 'slide');
       }
     }
   }
 
   /** The job's slide length if the cabinet is deep enough, otherwise the
    *  longest available one that fits. */
+  /** Where the front of the drawer slides is: behind inset fronts, else at
+   *  the front of the case. */
+  slideFront() {
+    return this.frontLimit;
+  }
+
   slideLength() {
     const sl = this.c.slide;
-    const fits = (l) => l + sl.depthAllowance <= this.interiorDepth();
+    const fits = (l) => l + sl.depthAllowance <= this.slideFront() - this.interiorZ0;
     if (fits(sl.length)) return sl.length;
     const shorter = sl.lengths.filter((l) => l < sl.length && fits(l));
     if (!shorter.length) throw new BuildError(`${this.spec.name}: too shallow for the shortest drawer slide`);
@@ -805,7 +996,7 @@ class Builder {
    * `floor` (the case bottom, or a divider under it) and the box stays under
    * `ceiling`.
    */
-  drawer(x0, x1, y0, y1, boxHeight, { floor = this.y0 + this.t, ceiling = this.y0 + this.caseH - this.t - 5 } = {}) {
+  drawer(x0, x1, y0, y1, boxHeight, { floor = this.bottomY + this.t, ceiling = this.y0 + this.caseH - this.t - 5, clear = -Infinity } = {}) {
     const c = this.c;
     const sl = c.slide;
     const name = this.spec.name;
@@ -819,7 +1010,7 @@ class Builder {
       width: fh,
       thickness: thickness(c, 'front'),
       edges: EDGES.all(),
-      bbox: box([x0, y0, this.d], [x1 - x0, fh, thickness(c, 'front')]),
+      bbox: box([x0, y0, this.frontZ], [x1 - x0, fh, thickness(c, 'front')]),
       ops: [],
     };
     this.parts.push(front);
@@ -833,14 +1024,18 @@ class Builder {
     const slideLength = this.slideLength();
     // One pair of slides per drawer, recorded for the supply list.
     front.slide = { name: sl.name, length: slideLength };
-    const length = slideLength - sl.drawerLengthDeduction;
+    // Out on a face frame the box reaches forward through the opening to the
+    // front, past the front of its slides.
+    const length = slideLength - sl.drawerLengthDeduction + (this.frontZ - this.slideFront());
     const inner = this.w - 2 * t - sl.insideWidthDeduction;
     const outer = inner + 2 * dt;
     const raise = c.drawerBottomRaise;
     // The drawer bottom rides on the runners: the lowest drawer's slides
     // stand on the cabinet bottom.
-    const by = Math.max(y0 + 20, floor + sl.runnerHeight - raise);
-    const room = Math.min(fh - c.drawerFrontClearance, ceiling - by);
+    // Behind a face frame the box only has to clear the opening (`clear`
+    // and `ceiling`); its slides sit behind the rail.
+    const by = this.ff ? Math.max(clear, floor + sl.runnerHeight - raise) : Math.max(y0 + 20, floor + sl.runnerHeight - raise);
+    const room = this.ff ? ceiling - by : Math.min(fh - c.drawerFrontClearance, ceiling - by);
     let bh;
     if (boxHeight > 0) {
       if (boxHeight > room + 1e-6) {
@@ -858,7 +1053,7 @@ class Builder {
     const onBottom = raise + dt;
     if (onBottom >= bh) throw new BuildError(`${name}: drawer sides are too low for the raised bottom`);
     const bx = (this.w - outer) / 2;
-    const bz = this.d - length;
+    const bz = this.frontZ - length;
 
     const boxPart = (partName, role, partLength, width, bbox) => ({
       name: partName,
@@ -874,7 +1069,7 @@ class Builder {
     this.parts.push(
       boxPart('Drawer side', 'drawerSide', length, bh, box([bx, by, bz], [dt, bh, length])),
       boxPart('Drawer side', 'drawerSide', length, bh, box([bx + outer - dt, by, bz], [dt, bh, length])),
-      boxPart('Drawer sub-front', 'drawerSubFront', inner, bh - onBottom, box([bx + dt, by + onBottom, this.d - dt], [inner, bh - onBottom, dt])),
+      boxPart('Drawer sub-front', 'drawerSubFront', inner, bh - onBottom, box([bx + dt, by + onBottom, this.frontZ - dt], [inner, bh - onBottom, dt])),
       boxPart('Drawer back', 'drawerBack', inner, bh - raise, box([bx + dt, by + raise, bz], [inner, bh - raise, dt])),
       boxPart('Drawer bottom', 'drawerBottom', inner, length - dt, box([bx + dt, by + raise, bz + dt], [inner, dt, length - dt])),
     );

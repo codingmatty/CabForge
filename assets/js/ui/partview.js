@@ -2,7 +2,8 @@
 // Case sides get a shop drawing instead: standing up, inside face, every
 // hole dimensioned from the bottom and front edges.
 
-import { effectiveConstruction, fmtMm } from '../engine/model.js';
+import { effectiveConstruction, fmtMm, partStock } from '../engine/model.js';
+import { jointLabel } from '../engine/cutlist.js';
 import { bores, edgeCode } from '../engine/part.js';
 import { jobFor } from '../engine/project.js';
 import { h, mount, s } from './dom.js';
@@ -80,6 +81,56 @@ function outlineDimensions(outline, font) {
   });
 }
 
+/**
+ * Joinery and hand-fitted hardware drawn on a part: butt hinge mortises on
+ * a door's hinge edge; where rails meet a face frame stile (mortises
+ * dashed, dowel holes as dots); a rail's tenons (shoulders dashed), dowels
+ * or pocket holes (on the back, near each end).
+ */
+function jointShapes(part, font) {
+  const [l, w] = [part.length, part.width];
+  const out = [];
+  const label = (x, y, t) => s('text', { class: 'dw-muted', x, y, 'font-size': font * 0.8, 'text-anchor': 'middle' }, t);
+  for (const m of part.hingeMarks ?? []) {
+    const depth = font * 0.7;
+    const y0 = m.edge === 'right' ? w - depth : 0;
+    out.push(s('rect', { class: 'dw-pocket', x: m.x - m.length / 2, y: y0, width: m.length, height: depth }), label(m.x, m.edge === 'right' ? w - depth - font * 0.4 : depth + font, fmtLen(m.x)));
+  }
+  const j = part.joint;
+  if (part.role === 'frameStile' && j) {
+    for (const r of part.joints ?? []) {
+      const [x0, x1] = [r.y0, r.y1];
+      const edge = r.edge === 'left' ? 0 : w;
+      const dir = r.edge === 'left' ? 1 : -1;
+      if (j.type === 'mortise') {
+        const shoulder = Math.min(6.35, (x1 - x0) / 4);
+        const ys = [edge, edge + dir * j.tenon].sort((a, b) => a - b);
+        out.push(s('rect', { class: 'dw-hidden', x: x0 + shoulder, y: ys[0], width: x1 - x0 - 2 * shoulder, height: ys[1] - ys[0] }));
+      } else if (j.type === 'dowel') {
+        const n = Math.max(1, j.dowels);
+        for (let k = 0; k < n; k++) out.push(s('circle', { class: 'bore-system', cx: x0 + ((x1 - x0) * (k + 1)) / (n + 1), cy: edge + dir * font * 0.6, r: (j.dowelDiameter || 9.5) / 2 }));
+      } else {
+        out.push(s('line', { class: 'dw-dim', x1: x0, y1: edge, x2: x1, y2: edge }));
+      }
+      out.push(label((x0 + x1) / 2, edge + dir * font * 2.2 + (dir > 0 ? 0 : font * 0.5), `rail ${fmtLen(x0)}–${fmtLen(x1)}`));
+    }
+  }
+  if (part.role === 'frameRail' && j) {
+    if (j.type === 'mortise' && j.tenon) {
+      for (const x of [j.tenon, l - j.tenon]) out.push(s('line', { class: 'dw-hidden', x1: x, y1: 0, x2: x, y2: w }));
+      out.push(label(j.tenon / 2, w / 2, 'tenon'), label(l - j.tenon / 2, w / 2, 'tenon'));
+    } else if (j.type === 'dowel') {
+      const n = Math.max(1, j.dowels);
+      for (const x of [0, l]) for (let k = 0; k < n; k++) out.push(s('circle', { class: 'bore-system', cx: x + (x ? -1 : 1) * font * 0.6, cy: (w * (k + 1)) / (n + 1), r: (j.dowelDiameter || 9.5) / 2 }));
+    } else {
+      // Two pocket holes at each end on the back (one on a narrow rail).
+      const ys = w < 50 ? [w / 2] : [w / 3, (2 * w) / 3];
+      for (const x of [22, l - 22]) for (const y of ys) out.push(s('ellipse', { class: 'bore-hingePlate', cx: x, cy: y, rx: 12, ry: 5 }));
+    }
+  }
+  return out;
+}
+
 function drawing(part) {
   const [l, w] = [part.length, part.width];
   const margin = Math.max(60, Math.max(l, w) * 0.08);
@@ -130,6 +181,7 @@ function drawing(part) {
     band(e.w2, l, 0, l, w),
     bores(part).map((b) => s('circle', { class: `bore-${b.purpose}`, cx: b.x, cy: b.y, r: b.diameter / 2 })),
     cups.shapes,
+    jointShapes(part, font),
     s('line', { class: 'dw-dim', x1: 0, y1: -margin * 0.45 - padTop, x2: l, y2: -margin * 0.45 - padTop }),
     s('text', { class: 'dw-text', x: l / 2, y: -margin * 0.55 - padTop, 'font-size': font, 'text-anchor': 'middle' }, `L ${fmtLen(l)}`),
     s('line', { class: 'dw-dim', x1: -margin * 0.45, y1: 0, x2: -margin * 0.45, y2: w }),
@@ -450,7 +502,18 @@ export function renderPartView(container) {
   if (part.cornerRadius) notes.push(h('p', {}, `Shaker center panel · corners R${fmtLenU(part.cornerRadius)} to fit the rabbet`));
   if (part.hinge?.cupCenter != null) {
     const hg = part.hinge;
-    notes.push(h('p', {}, `Hinge cups at K ${fmtMm(hg.k)}: centres ${fmtMm(hg.cupCenter)} from the hinge edge · ${fmtMm(hg.plate)} mm plates`));
+    const plates = hg.plate == null ? (hg.frame ? 'plates on the face frame' : 'inset plates on the side') : `${fmtMm(hg.plate)} mm plates`;
+    notes.push(h('p', {}, `${hg.name}: cups at K ${fmtMm(hg.k)}, centres ${fmtMm(hg.cupCenter)} from the hinge edge · ${plates}`));
+  }
+  if (part.hingeMarks?.length) {
+    notes.push(h('p', {}, `${part.hinge?.name ?? 'Butt hinges'}: ${part.hingeMarks.length} mortised on the ${part.hingeMarks[0].edge} edge, ${fmtLen(part.hingeMarks[0].length)} long, centres ${part.hingeMarks.map((m) => fmtLen(m.x)).join(', ')} from the bottom`));
+  }
+  if (part.solid) {
+    const wood = partStock(state.project.construction, part);
+    notes.unshift(h('p', {}, `Face frame · ${wood?.name ?? 'solid wood'} · ${jointLabel(part.joint)}`));
+    if (part.role === 'frameRail' && part.joint?.type === 'mortise') notes.push(h('p', {}, `Length includes a ${fmtLen(part.joint.tenon)} tenon at each end; ${fmtLen(part.length - 2 * part.joint.tenon)} between the shoulders.`));
+    if (part.role === 'frameRail' && part.joint?.type === 'pocket') notes.push(h('p', {}, 'Pocket holes on the back, at both ends.'));
+    if (part.role === 'frameStile' && part.joints?.length) notes.push(h('p', {}, `Rails meet it at ${part.joints.map((r) => `${fmtLen(r.y0)}–${fmtLen(r.y1)} (${r.edge})`).join(', ')}, from the bottom.`));
   }
   const header = `${part.name} — ${fmtSize(part.length, part.width)} × ${fmtMm(part.thickness)}${isImperial() ? ' mm' : ''}  ·  edges: ${edgeCode(part.edges) || 'none'}`;
   const legend = (color, label, square = false) =>

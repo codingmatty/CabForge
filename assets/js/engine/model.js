@@ -104,6 +104,28 @@ export function newCabinet(kind, id = 0, c = null) {
   };
 }
 
+/** How deep the blind part of a blind corner's front is: the cabinets on
+ *  the next wall (their depth and fronts) and the clearance for doors and
+ *  pulls. */
+export function blindDepth(c, kind) {
+  const depth = c.cabinetSizes?.[kind]?.depth ?? KIND_DEFAULTS[kind].depth;
+  return depth + frontProjection(c) + (c.blindClearance ?? 50.8);
+}
+
+/**
+ * A blind corner cabinet for the end of a wall: a plain box that runs into
+ * the corner, the cabinets on the next wall standing in front of its blind
+ * end (`blind.width` from its right edge, covered by a wide stile or a
+ * blind panel). The door takes the rest, `corner.openingA` wide.
+ */
+export function newBlindCorner(kind, id = 0, c = null) {
+  const job = c ?? defaultConstruction();
+  const spec = newCabinet(kind, id, c);
+  const blind = Math.round(blindDepth(job, kind));
+  const sec = { ...newSection('door', spec.shelves), doors: 1 };
+  return { ...spec, name: `Blind corner ${kind} ${id}`, width: blind + (job.corner?.openingA ?? 300) + 2 * caseT(job), blind: { width: blind }, fronts: { type: 'stack', sections: [sec] } };
+}
+
 /** The run a cabinet, filler or space belongs to: 'base', 'wall' or 'tall'. */
 export function runOf(spec) {
   return spec.kind === 'filler' || spec.kind === 'space' ? spec.run : spec.kind;
@@ -126,16 +148,23 @@ export function toeHeight(c, spec) {
   return hasPlinth(spec) && c.plinth !== 'none' ? c.toeKickHeight : 0;
 }
 
-/** Height of a drawer front `units` drawer units tall: the units less one gap. */
+/** Height of a front section `units` drawer units tall: the units less one
+ *  separator (the gap, or a face frame's middle rail; see frontSpan). */
 export function unitFrontHeight(c, units) {
-  return units * c.drawerUnit - c.reveals.gap;
+  return units * c.drawerUnit - frontSep(c);
+}
+
+/** What separates two front sections under construction `c` (frontSpan). */
+export function frontSep(c) {
+  if (isFaceFrame(c)) return c.faceFrame.midRail;
+  return c.cabinetStyle === 'framelessInset' ? c.insetGap : c.reveals.gap;
 }
 
 /** Whole drawer units that fit in the front space of cabinet `spec` (c is
  *  its effective construction). */
 export function frontUnits(c, spec) {
-  const span = spec.height - toeHeight(c, spec) - c.reveals.top - c.reveals.bottom;
-  return Math.floor((span + c.reveals.gap + 1e-6) / c.drawerUnit);
+  const { lo, hi, sep } = frontSpan(c, spec);
+  return Math.floor((hi - lo + sep + 1e-6) / c.drawerUnit);
 }
 
 /** The drawer size row for `units`, if the construction lists one. */
@@ -305,6 +334,131 @@ export const FRONT_STYLES = { slab: 'Slab', shaker: 'Shaker (2-piece)' };
 const PANEL_MATERIAL_NAME = 'MDF 1/4″';
 const PANEL_THICKNESS = 6.35;
 
+// ---- cabinet styles ----------------------------------------------------------
+
+export const CABINET_STYLES = {
+  frameless: 'Frameless, overlay fronts',
+  framelessInset: 'Frameless, inset fronts',
+  faceFrameInset: 'Face frame, inset fronts',
+  faceFrameOverlay: 'Face frame, overlay fronts',
+};
+export const JOINERY = { pocket: 'Pocket screws', mortise: 'Mortise & tenon', dowel: 'Dowels / dominos' };
+
+export const isFaceFrame = (c) => c.cabinetStyle === 'faceFrameInset' || c.cabinetStyle === 'faceFrameOverlay';
+export const isInset = (c) => c.cabinetStyle === 'framelessInset' || c.cabinetStyle === 'faceFrameInset';
+
+/** The face-frame wood (woods list) for construction `c`. */
+export function frameWood(c) {
+  return c.woods?.find((w) => w.id === c.faceFrame?.wood) ?? c.woods?.[0] ?? null;
+}
+
+/** Face frame thickness: its wood's (3/4" without one). */
+export function frameThickness(c) {
+  return frameWood(c)?.thickness || 19.05;
+}
+
+/** How far the front of the fronts stands in front of the case: the
+ *  front thickness (frameless overlay), the frame (face frame inset), the
+ *  frame and the front (face frame overlay) or nothing (frameless inset). */
+export function frontProjection(c) {
+  const ft = thickness(c, 'front');
+  switch (c.cabinetStyle) {
+    case 'framelessInset':
+      return 0;
+    case 'faceFrameInset':
+      return Math.max(frameThickness(c), ft);
+    case 'faceFrameOverlay':
+      return frameThickness(c) + ft;
+    default:
+      return ft;
+  }
+}
+
+// Hinge catalogues for the inset and face-frame styles. The numbers are from
+// the makers' and dealers' published listings (35 mm cups; Blum cups 13
+// deep, Salice about 11; boring distance 3 mm, 2.5 for the Salice 1/2"
+// face-frame hinge): check them against the instructions that come with the
+// hinges before boring doors.
+export const HINGE_BRANDS = { blum: 'Blum', salice: 'Salice' };
+const BRAND_HINGES = {
+  blum: {
+    framelessInset: { name: 'Blum CLIP top BLUMOTION 110° inset (71B3790)', cupDepth: 13, k: 3 },
+    faceFrameInset: { name: 'Blum CLIP top BLUMOTION 110° inset (71B3790), face-frame plate', cupDepth: 13, k: 3 },
+    faceFrameOverlay: { name: 'Blum Compact 38N 1/2″ overlay face-frame hinge', cupDepth: 13, k: 3 },
+  },
+  salice: {
+    framelessInset: { name: 'Salice Silentia 105° inset (C1R6PD9)', cupDepth: 11.5, k: 3 },
+    faceFrameInset: { name: 'Salice Silentia 105° inset (C1R6PD9), face-frame plate', cupDepth: 11.5, k: 3 },
+    faceFrameOverlay: { name: 'Salice Excenthree 1/2″ overlay face-frame hinge (CSP37XR)', cupDepth: 11, k: 2.5 },
+  },
+};
+export const HINGE_TYPES = { euro: 'Concealed (35 mm cup)', butt: 'Butt / knife (mortised)' };
+
+/** Hinges for each inset and face-frame style from `brand`'s catalogue. */
+export function hingePreset(brand) {
+  const out = {};
+  for (const [style, h] of Object.entries(BRAND_HINGES[brand] ?? BRAND_HINGES.blum)) {
+    out[style] = {
+      type: 'euro',
+      ...h,
+      cupDiameter: 35,
+      endOffset: 100,
+      cost: 0,
+      plateCost: 0,
+      // Butt or knife hinges (type 'butt'): leaf length and price.
+      buttName: '2 1/2″ butt hinge',
+      buttLength: 63.5,
+      buttCost: 0,
+    };
+  }
+  return out;
+}
+
+/** Fills the style hinges in from `brand`, keeping each style's hinge type
+ *  and butt hinge (in place). */
+export function applyHingeBrand(c, brand) {
+  const preset = hingePreset(brand);
+  for (const [style, h] of Object.entries(preset)) {
+    const old = c.styleHinges?.[style] ?? {};
+    preset[style] = { ...h, type: old.type ?? h.type, buttName: old.buttName ?? h.buttName, buttLength: old.buttLength ?? h.buttLength, buttCost: old.buttCost ?? h.buttCost, cost: old.cost ?? 0, plateCost: old.plateCost ?? 0 };
+  }
+  c.hingeBrand = brand;
+  c.styleHinges = preset;
+  return c;
+}
+
+/** The hinge doors use under construction `c`: the style's, or null for
+ *  frameless overlay (which uses c.hinge). */
+export function styleHinge(c) {
+  return c.cabinetStyle === 'frameless' ? null : c.styleHinges?.[c.cabinetStyle] ?? null;
+}
+
+/**
+ * Where the fronts of a cabinet go, in cabinet-space heights: `lo`..`hi` is
+ * the span the sections share and `sep` what separates two of them (the
+ * gap, or a face frame's middle rail); a section n drawer units tall takes
+ * n × drawerUnit less one `sep` (frontCell). For a face frame these are
+ * the frame openings, for the other styles the fronts themselves (an inset
+ * front is the cell less the gap all round).
+ */
+export function frontSpan(c, spec) {
+  const y0 = toeHeight(c, spec);
+  const top = spec.height;
+  const t = caseT(c);
+  const r = c.reveals;
+  switch (c.cabinetStyle) {
+    case 'framelessInset':
+      return { lo: y0 + t + c.insetGap, hi: top - t - c.insetGap, sep: c.insetGap };
+    case 'faceFrameInset':
+    case 'faceFrameOverlay': {
+      const ff = c.faceFrame;
+      return { lo: y0 + ff.bottomRail, hi: top - ff.topRail, sep: ff.midRail };
+    }
+    default:
+      return { lo: y0 + r.bottom, hi: top - r.top, sep: r.gap };
+  }
+}
+
 /** Job-wide construction standards, including the material library. */
 export function defaultConstruction() {
   return {
@@ -431,6 +585,53 @@ export function defaultConstruction() {
     // would be under minOpening either way stay slab.
     frontStyle: 'slab',
     shaker: { frame: 57.15, rabbet: 2, clearance: 0.5, minOpening: 60 },
+    // How the case and fronts go together (see CABINET_STYLES): frameless
+    // with overlay fronts, frameless inset, or a solid wood face frame with
+    // inset or overlay fronts. Any cabinet can override it.
+    cabinetStyle: 'frameless',
+    // Gap all round an inset front (3/32"), and how far a front laps onto
+    // a face frame (1/2"). Between two fronts on one rail, each laps half
+    // of what the rail leaves after the gap.
+    insetGap: 2.38125,
+    frameOverlay: 12.7,
+    // Face frames: stiles flush with the inside of the case, so a stile
+    // between two cases is both their sides wide (more over a filler), and
+    // one at the end of a run is a side plus the scribe. Rails run between
+    // the stiles; the bottom rail's top is flush with the top of the case
+    // bottom, which is raised to meet it. `continuous`: one frame along a
+    // run of cabinets with a shared stile at each joint (false: a frame per
+    // cabinet). Joints: 'pocket' screws, 'mortise' and tenon (rails `tenon`
+    // longer at each end) or 'dowel' (`dowels` per joint, `dowelDiameter`).
+    // `wood`: the solid wood (woods list) the frames are cut from.
+    faceFrame: {
+      topRail: 38.1,
+      bottomRail: 38.1,
+      midRail: 25.4,
+      scribe: 6.35,
+      continuous: true,
+      joinery: 'pocket',
+      tenon: 25.4,
+      dowels: 2,
+      dowelDiameter: 9.525,
+      wood: 1,
+    },
+    // Solid wood for face frames: finished thickness, rough stock in
+    // quarters (4 = 4/4) for board feet, price per board foot, waste %.
+    woods: [
+      { id: 1, name: 'Hard maple', thickness: 19.05, quarters: 4, cost: 0, waste: 20, color: '#e8d2a6' },
+      { id: 2, name: 'Poplar (paint grade)', thickness: 19.05, quarters: 4, cost: 0, waste: 20, color: '#d9d4b0' },
+    ],
+    // Hinges for the inset and face-frame styles (frameless overlay uses
+    // `hinge`). `hingeBrand` is the catalogue they were filled in from
+    // (HINGE_BRANDS); each can then be edited. `type`: 'euro' (35 mm cup
+    // bored `k` from the door edge) or 'butt' (mortised butt or knife
+    // hinges: positions only, nothing bored).
+    hingeBrand: 'blum',
+    styleHinges: hingePreset('blum'),
+    // Blind corner cabinets: the blind part of the front is the depth of the
+    // cabinets on the next wall, their fronts, and this clearance for the
+    // doors and pulls.
+    blindClearance: 50.8,
     // Sizes for cabinets added to a job. boxHeight is the case alone: base
     // and tall cabinets stand on the toe kick, which adds to the overall
     // height (768 + 110 = 878 for a base).
@@ -518,6 +719,7 @@ export function defaultConstruction() {
         shelves: { faces: 0, edges: false },
         plinth: { faces: 0, edges: false },
         kickCovers: { faces: 1, edges: true },
+        frames: { faces: 1, edges: true },
       },
     },
     countertop: { enabled: true, name: 'Countertop', thickness: 30, frontOverhang: 25, endOverhang: 0, color: '#8b8f96', cost: 0 },
@@ -612,6 +814,14 @@ export function material(c, slot) {
 /** The material a built part is cut from (parts record the library id). */
 export function partMaterial(c, part) {
   return materialById(c, part.materialId ?? c.materials[part.material]);
+}
+
+/** What a part is made from for showing it: its sheet material, or for a
+ *  face frame part its solid wood ({ name, color, thickness, kind }). */
+export function partStock(c, part) {
+  if (!part.solid) return partMaterial(c, part);
+  const w = c.woods?.find((x) => x.id === part.woodId) ?? frameWood(c);
+  return w ? { ...w, kind: 'Solid wood' } : null;
 }
 
 /** Thickness of the material in `slot` (0 if missing from the library). */

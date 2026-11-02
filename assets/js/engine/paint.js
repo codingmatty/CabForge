@@ -7,7 +7,7 @@
 //            unit ('gal'), cost (per container) }], parts: { group: { faces
 //            (0, 1 or 2), edges } } }
 
-import { isFront, isFrontPanel, isPlinth } from './part.js';
+import { isFramePart, isFront, isFrontPanel, isPlinth } from './part.js';
 
 export const FT2_PER_M2 = 10.7639;
 
@@ -22,6 +22,7 @@ export const PAINT_GROUPS = {
   shelves: 'Shelves',
   plinth: 'Toe kicks & plinths',
   kickCovers: 'Toe kick covers',
+  frames: 'Face frames',
 };
 
 /** The paint group a part belongs to, or null if it is never painted. */
@@ -34,6 +35,7 @@ export function paintGroup(part) {
   if (r === 'shelf' || r === 'fixedShelf') return 'shelves';
   if (r === 'toeKickCover') return 'kickCovers';
   if (isPlinth(r)) return 'plinth';
+  if (isFramePart(r)) return 'frames';
   return null;
 }
 

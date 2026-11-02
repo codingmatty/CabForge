@@ -29,10 +29,11 @@ import { PLINTH_OPTIONS } from './cabinetdialog.js';
 import { checkboxField, h, lenField, lenInput, mount, numField, selectField, sizeReference, textField } from './dom.js';
 import { PRECISIONS, fmtLen, fmtLenU, isImperial, parseLen, rateToMm, rateValue, unitName } from '../engine/units.js';
 import { setPrefs, setShop, setState, state, updateProject } from './store.js';
+import { blindSection, editFronts, styleHingeSections, styleSections, woodsSection } from './stylesettings.js';
 
 const close = () => setState({ settings: null });
 
-function editConstruction(fn, opts) {
+export function editConstruction(fn, opts) {
   updateProject((p) => fn(p.construction), opts);
 }
 
@@ -350,15 +351,15 @@ function bandTypeList(c) {
 }
 
 /** A length setting (mm), shown in the display units unless `metric`. */
-function conNum(c, label, key, get, set, { metric = false } = {}) {
+export function conNum(c, label, key, get, set, { metric = false } = {}) {
   return lenField(label, key, get(c), (v) => editConstruction((c) => set(c, v)), { step: 0.5, metric });
 }
 
 /** A section heading; hardware sections stay in mm and say so in inch mode. */
-const metricHeading = (text) => h('h3', {}, isImperial() ? `${text} (mm)` : text);
+export const metricHeading = (text) => h('h3', {}, isImperial() ? `${text} (mm)` : text);
 
 /** A price in the construction (0 = not priced). */
-function conCost(c, label, key, get, set) {
+export function conCost(c, label, key, get, set) {
   return numField(label, key, get(c) || 0, (v) => editConstruction((c) => set(c, Math.max(0, v))), { step: 0.01, format: (v) => v.toFixed(2) });
 }
 
@@ -523,7 +524,7 @@ function hingeSection(c) {
   return h(
     'section',
     {},
-    metricHeading('Cup boring & plates'),
+    metricHeading('Frameless overlay hinge: cup boring & plates'),
     h(
       'div',
       { class: 'fields' },
@@ -750,6 +751,8 @@ function spaceSizesSection(c) {
 
 /** Reveals and gaps around the fronts, and when doors become a pair. */
 function frontsSection(c) {
+  // Reveals move the fronts: drawer-unit stacks are refitted.
+  const revNum = (label, key, side) => lenField(label, key, c.reveals[side], (v) => editFronts((c) => (c.reveals[side] = Math.max(0, v))), { step: 0.5 });
   return h(
     'section',
     {},
@@ -757,13 +760,13 @@ function frontsSection(c) {
     h(
       'div',
       { class: 'fields' },
-      conNum(c, 'Side reveal', 'revSide', (c) => c.reveals.side, (c, v) => (c.reveals.side = Math.max(0, v))),
-      conNum(c, 'Gap between fronts', 'revGap', (c) => c.reveals.gap, (c, v) => (c.reveals.gap = Math.max(0, v))),
-      conNum(c, 'Top reveal', 'revTop', (c) => c.reveals.top, (c, v) => (c.reveals.top = Math.max(0, v))),
-      conNum(c, 'Bottom reveal', 'revBottom', (c) => c.reveals.bottom, (c, v) => (c.reveals.bottom = Math.max(0, v))),
+      revNum('Side reveal', 'revSide', 'side'),
+      revNum('Gap between fronts', 'revGap', 'gap'),
+      revNum('Top reveal', 'revTop', 'top'),
+      revNum('Bottom reveal', 'revBottom', 'bottom'),
       conNum(c, 'Max single door', 'maxDoor', (c) => c.maxSingleDoorWidth, (c, v) => (c.maxSingleDoorWidth = v)),
     ),
-    h('p', { class: 'muted' }, 'Full-overlay fronts. Doors wider than the max single door become a pair.'),
+    h('p', { class: 'muted' }, 'For frameless cabinets with full-overlay fronts (Cabinet style). Doors wider than the max single door become a pair, in every style.'),
   );
 }
 
@@ -1085,8 +1088,8 @@ function resetConstruction() {
   editConstruction((c) => {
     // Resets the standards but keeps the material library and choices,
     // and the Edge banding settings.
-    const { library, materials, bands, partBands, edgeBanding, edgeBandTypes } = c;
-    Object.assign(c, defaultConstruction(), { library, materials, bands, partBands, edgeBanding, edgeBandTypes });
+    const { library, materials, bands, partBands, edgeBanding, edgeBandTypes, woods } = c;
+    Object.assign(c, defaultConstruction(), { library, materials, bands, partBands, edgeBanding, edgeBandTypes, woods });
     ensureBands(c);
   });
 }
@@ -1248,9 +1251,10 @@ const PAGES = [
   {
     group: 'Cabinets',
     pages: [
+      { id: 'style', label: 'Cabinet style', intro: 'Frameless or face frame, with overlay or inset fronts.', sections: styleSections },
       { id: 'cabinets', label: 'Sizes & fronts', intro: 'Sizes for new cabinets and how the fronts sit on the case.', sections: (c) => [cabinetSizesSection(c), spaceSizesSection(c), frontsSection(c), frontStyleSection(c)] },
       { id: 'case', label: 'Case & base', intro: 'How the case goes together and what it stands on.', sections: (c) => [caseSection(c), baseSection(c), endPanelSection(c)] },
-      { id: 'corner', label: 'Corner cabinets', intro: 'Sizes new corner cabinets start from; each one can change its own.', sections: cornerSection },
+      { id: 'corner', label: 'Corner cabinets', intro: 'Sizes new corner cabinets start from; each one can change its own.', sections: (c) => [cornerSection(c), blindSection(c)] },
       { id: 'countertop', label: 'Countertop', sections: (c) => [countertopSection(c)] },
       { id: 'system', label: '32mm system', sections: (c) => [systemSection(c)] },
     ],
@@ -1258,7 +1262,7 @@ const PAGES = [
   {
     group: 'Hardware',
     pages: [
-      { id: 'hinges', label: 'Hinges', sections: (c) => [hingeSection(c)] },
+      { id: 'hinges', label: 'Hinges', intro: 'The frameless overlay hinge first, then the inset and face-frame ones.', sections: (c) => [hingeSection(c), styleHingeSections(c)] },
       { id: 'drawers', label: 'Drawers', intro: 'Slides, drawer boxes and the drawer front sizes in units.', sections: (c) => [slideSection(c), drawerBoxSection(c), drawerSizeSection(c)] },
     ],
   },
@@ -1267,6 +1271,7 @@ const PAGES = [
     pages: [
       { id: 'materials', label: 'Sheet materials', wide: true, sections: (c) => [jobMaterialsSection(c), materialLibrary(c)] },
       { id: 'edgeBanding', label: 'Edge banding', wide: true, sections: (c) => [bandLibrary(c), bandTypeList(c), edgeBandingSection(c)] },
+      { id: 'woods', label: 'Solid wood', wide: true, sections: (c) => [woodsSection(c)] },
       { id: 'paint', label: 'Paint', intro: 'What the job takes to paint, for the Materials report.', sections: paintSection },
     ],
   },

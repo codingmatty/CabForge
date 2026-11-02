@@ -3,7 +3,7 @@
 
 import { buildCabinet } from './build.js';
 import { cutList } from './cutlist.js';
-import { defaultConstruction, drawerBase, effectiveConstruction, endPanelThickness, hasPlinth, materialById, newCabinet, panelWidth, runOf } from './model.js';
+import { defaultConstruction, drawerBase, effectiveConstruction, endPanelThickness, frameThickness, frontSections, frontUnits, frameWood, frontProjection, hasPlinth, isFaceFrame, materialById, newCabinet, panelWidth, runOf } from './model.js';
 import { bandEdges, box } from './part.js';
 import { defaultRoom, locationOf, locations, placement, reversed } from './room.js';
 
@@ -38,17 +38,35 @@ function sameRun(p, a, b) {
   return sharesRun(runOf(a), runOf(b)) && atOf(p, a) === atOf(p, b);
 }
 
+/** A corner cabinet, or a blind corner: they stand at the end of a wall. */
+const atCorner = (spec) => !!(spec.corner || spec.blind);
+
+/** The construction a cabinet is built with (job and its overrides). */
+const specConstruction = (p, spec) => effectiveConstruction(p.construction, spec.overrides);
+
+/** The face frame scribe on the open end of a run along a wall: the stile
+ *  stands this far past the case (or filler) to be scribed to the wall.
+ *  0 for frameless cabinets, spaces, islands and ends with an end panel. */
+function scribe(p, spec, side) {
+  if (spec.kind === 'space' || spec.panel || spec.endPanels?.[side]) return 0;
+  // A blind corner's right end is in the corner, behind the next wall's cabinets.
+  if (spec.blind && side === 'right') return 0;
+  if (locationOf(p, spec).kind !== 'wall') return 0;
+  const c = specConstruction(p, spec);
+  return isFaceFrame(c) ? c.faceFrame.scribe : 0;
+}
+
 /** Left edge of the case for a cabinet placed after `before` in its run.
  *  End panels take up room on either side of the case. A corner cabinet
  *  stands in the corner at the end of its wall (or after the run, if that
  *  is already longer). */
 function nextX(p, before, spec) {
-  const right = before
-    .filter((c) => sameRun(p, spec, c))
-    .reduce((max, c) => Math.max(max, c.x + c.width + endPanelThickness(p.construction, c, 'right')), runStart(p, spec));
-  const x = right + endPanelThickness(p.construction, spec, 'left');
+  const run = before.filter((c) => sameRun(p, spec, c));
+  const right = run.reduce((max, c) => Math.max(max, c.x + c.width + endPanelThickness(p.construction, c, 'right')), runStart(p, spec));
+  // The first in a run leaves room for its stile's scribe.
+  const x = right + endPanelThickness(p.construction, spec, 'left') + (run.length ? 0 : scribe(p, spec, 'left'));
   const loc = locationOf(p, spec);
-  return spec.corner && loc.kind === 'wall' ? Math.max(x, loc.length - spec.width - standOff(p, spec)) : x;
+  return atCorner(spec) && loc.kind === 'wall' ? Math.max(x, loc.length - spec.width - standOff(p, spec)) : x;
 }
 
 /** Right edge of the case for a cabinet placed before `after` in its run,
@@ -56,11 +74,10 @@ function nextX(p, before, spec) {
  *  corner cabinet at the end. The mirror of nextX. */
 function prevX(p, after, spec) {
   const loc = locationOf(p, spec);
-  if (spec.corner) return loc.length - spec.width - standOff(p, spec);
-  const left = after
-    .filter((c) => sameRun(p, spec, c))
-    .reduce((min, c) => Math.min(min, c.x - endPanelThickness(p.construction, c, 'left')), loc.length);
-  return left - endPanelThickness(p.construction, spec, 'right') - spec.width;
+  if (atCorner(spec)) return loc.length - spec.width - standOff(p, spec);
+  const run = after.filter((c) => sameRun(p, spec, c));
+  const left = run.reduce((min, c) => Math.min(min, c.x - endPanelThickness(p.construction, c, 'left')), loc.length);
+  return left - endPanelThickness(p.construction, spec, 'right') - spec.width - (run.length ? 0 : scribe(p, spec, 'right'));
 }
 
 /**
@@ -91,7 +108,7 @@ export function fromEnd(p, loc) {
   const from = loc.wall.from ?? 'auto';
   if (from !== 'auto') return from === 'end';
   const here = p.cabinets.filter((c) => atOf(p, c) === loc.id);
-  return here.some((c) => c.corner) && !here.some((c) => runStart(p, c) > 0);
+  return here.some(atCorner) && !here.some((c) => runStart(p, c) > 0);
 }
 
 /** Whether a change to one cabinet at `loc` re-places all of them: when
@@ -104,9 +121,11 @@ export function runStart(p, spec) {
   const loc = locationOf(p, spec);
   if (loc.kind !== 'wall' || loc.index === 0 || loc.wall.turn !== 'inside') return 0;
   const prev = locations(p)[loc.index - 1];
+  // A blind corner's box runs into the corner: this wall's run starts in
+  // front of it.
   return p.cabinets
-    .filter((c) => c.corner && atOf(p, c) === prev.id && sharesRun(runOf(spec), runOf(c)))
-    .reduce((max, c) => Math.max(max, c.corner.return + standOff(p, c)), 0);
+    .filter((c) => atCorner(c) && atOf(p, c) === prev.id && sharesRun(runOf(spec), runOf(c)))
+    .reduce((max, c) => Math.max(max, c.corner ? c.corner.return + standOff(p, c) : c.depth + frontProjection(specConstruction(p, c))), 0);
 }
 
 function assignId(p, spec) {
@@ -144,11 +163,11 @@ export function relayout(p) {
     if (rev.has(atOf(p, spec))) spec.x = nextX(p, p.cabinets.slice(i + 1), spec);
   }
   // Corners first, then the rest from the last in the list back.
-  const corners = p.cabinets.filter((c) => c.corner && backwards(c));
+  const corners = p.cabinets.filter((c) => atCorner(c) && backwards(c));
   for (const spec of corners) spec.x = prevX(p, [], spec);
   for (let i = p.cabinets.length - 1; i >= 0; i--) {
     const spec = p.cabinets[i];
-    if (backwards(spec) && !spec.corner) spec.x = prevX(p, [...corners, ...p.cabinets.slice(i + 1).filter((c) => !c.corner)], spec);
+    if (backwards(spec) && !atCorner(spec)) spec.x = prevX(p, [...corners, ...p.cabinets.slice(i + 1).filter((c) => !atCorner(c))], spec);
   }
 }
 
@@ -254,7 +273,47 @@ export function resizeCabinet(p, index, width) {
     if (i !== index && here(c) && c.x >= oldRight - 0.5 && (sharesRun(run, runOf(c)) || c.x >= tallEdge - 0.5)) c.x += delta;
   });
   // A corner cabinet's return moves the start of the next wall's runs.
-  if (spec.corner) relayout(p);
+  if (atCorner(spec)) relayout(p);
+}
+
+/**
+ * After a construction change that moves the fronts (the cabinet style,
+ * rails, reveals): drawer-unit stacks that filled their cabinet under
+ * `before` (the job construction before the change) are made to fill it
+ * again, and ones that no longer fit are cut down. Units come off the
+ * tallest sections first and go on the smallest below the top one, the
+ * bottom one first among equals; none goes below 3. With `only`, just
+ * the cabinet at that index, whose overrides were `beforeOverrides`.
+ * Returns the number of cabinets changed.
+ */
+export function refitFronts(p, before, only = null, beforeOverrides = undefined) {
+  let changed = 0;
+  p.cabinets.forEach((spec, i) => {
+    if (only != null && i !== only) return;
+    if (spec.kind === 'filler' || spec.kind === 'space' || spec.corner || spec.fronts?.type !== 'stack') return;
+    const secs = frontSections(spec).filter((s) => s.units > 0);
+    if (!secs.length) return;
+    const total = secs.reduce((n, s) => n + s.units, 0);
+    const oldCap = frontUnits(effectiveConstruction(before, only != null ? beforeOverrides : spec.overrides), spec);
+    const job = jobFor(p, i);
+    const cap = frontUnits(effectiveConstruction(job, spec.overrides), spec);
+    // Only stacks that are all units fill the cabinet; others just must fit.
+    const full = secs.length === frontSections(spec).length && total === oldCap;
+    let delta = full ? cap - total : Math.min(0, cap - total);
+    if (!delta) return;
+    const order = () => secs.map((s, k) => [s, k]).sort((a, b) => b[0].units - a[0].units || b[1] - a[1]);
+    let guard = 1000;
+    while (delta !== 0 && guard--) {
+      // Growing: the smallest below the top one (bottom first), undoing a cut.
+      const grow = () => secs.map((s, k) => [s, k]).filter(([, k]) => k > 0 || secs.length === 1).sort((a, b) => a[0].units - b[0].units || b[1] - a[1])[0];
+      const [s] = delta > 0 ? grow() : order().find(([s]) => s.units > 3) ?? [];
+      if (!s) break;
+      s.units += Math.sign(delta);
+      delta -= Math.sign(delta);
+    }
+    changed++;
+  });
+  return changed;
 }
 
 /** One entry per cabinet: { cabinet } or { error }. Plinth rails of
@@ -270,7 +329,143 @@ export function buildAll(p) {
     }
   });
   joinPlinths(p, built);
+  joinFrames(p, built);
   return built;
+}
+
+// ---- face frames across a run -------------------------------------------------
+
+/**
+ * The face frames of the job: each a run of face-frame cabinets side by
+ * side (fillers between them taken into the stiles) at the same height and
+ * depth, or one cabinet when frames aren't continuous or a cabinet asks for
+ * a break after it (spec.frameBreak). A frame breaks at spaces, frameless
+ * cabinets and wherever the frame's top, bottom or face changes.
+ *
+ * Returns [{ at, cabinets: [index], wood, thickness, bottom, top (world y),
+ * stiles: [{ x0, x1, owner, end }], rails: [{ x0, x1, y0, y1, name }],
+ * openings: [{ x0, x1, y0, y1 }] }], x along the wall, y from the floor.
+ */
+export function faceFrames(p, built) {
+  const framed = (i) => !!built[i]?.cabinet?.frame;
+  const out = [];
+  const byLoc = new Map();
+  p.cabinets.forEach((spec, i) => {
+    const key = atOf(p, spec);
+    if (!byLoc.has(key)) byLoc.set(key, []);
+    byLoc.get(key).push(i);
+  });
+  for (const [at, list] of byLoc) {
+    const specs = list.map((i) => ({ i, spec: p.cabinets[i] }));
+    /** What touches cabinet i on `side`, past any fillers in its run:
+     *  { fillers (mm), next: { i, spec } | null }. */
+    const beside = (i, side) => {
+      const me = p.cabinets[i];
+      let edge = side === 'right' ? me.x + me.width : me.x;
+      let fillers = 0;
+      for (;;) {
+        const hit = specs.find(({ i: j, spec }) => j !== i && sharesRun(runOf(me), runOf(spec)) && Math.abs((side === 'right' ? spec.x : spec.x + spec.width) - edge) < TOUCH);
+        if (!hit) return { fillers, next: null };
+        if (hit.spec.kind !== 'filler' || hit.spec.panel) return { fillers, next: hit };
+        fillers += hit.spec.width;
+        edge = side === 'right' ? hit.spec.x + hit.spec.width : hit.spec.x;
+      }
+    };
+    const world = (i) => {
+      const f = built[i].cabinet.frame;
+      const spec = p.cabinets[i];
+      return { bottom: spec.elevation + f.bottom, top: spec.elevation + f.top, face: spec.depth };
+    };
+    const joins = (a, b) => {
+      const [ca, cb] = [specConstruction(p, p.cabinets[a]), specConstruction(p, p.cabinets[b])];
+      if (!ca.faceFrame.continuous || !cb.faceFrame.continuous || p.cabinets[a].frameBreak) return false;
+      const [wa, wb] = [world(a), world(b)];
+      return Math.abs(wa.bottom - wb.bottom) < TOUCH && Math.abs(wa.top - wb.top) < TOUCH && Math.abs(wa.face - wb.face) < TOUCH && frameThickness(ca) === frameThickness(cb);
+    };
+    const done = new Set();
+    const order = list.filter(framed).sort((a, b) => p.cabinets[a].x - p.cabinets[b].x);
+    for (const start of order) {
+      if (done.has(start)) continue;
+      // Walk left to the start of this frame, then right along it.
+      let first = start;
+      for (;;) {
+        const l = beside(first, 'left').next;
+        if (l && framed(l.i) && joins(l.i, first)) first = l.i;
+        else break;
+      }
+      const chain = [first];
+      for (;;) {
+        const r = beside(chain[chain.length - 1], 'right').next;
+        if (r && framed(r.i) && joins(chain[chain.length - 1], r.i)) chain.push(r.i);
+        else break;
+      }
+      chain.forEach((i) => done.add(i));
+      out.push(frameOf(p, built, at, chain, beside, framed));
+    }
+  }
+  return out;
+}
+
+function frameOf(p, built, at, chain, beside, framed) {
+  const spec0 = p.cabinets[chain[0]];
+  const c = specConstruction(p, spec0);
+  const f0 = built[chain[0]].cabinet.frame;
+  const frame = { at, cabinets: chain, wood: frameWood(c), thickness: f0.thickness, bottom: spec0.elevation + f0.bottom, top: spec0.elevation + f0.top, stiles: [], rails: [], openings: [] };
+  const ox = (i, x) => p.cabinets[i].x + x;
+  // Left end: the case side, fillers (when no frame on their far side
+  // takes them) and the scribe at the open end of a run along a wall.
+  const first = chain[0];
+  const lb = beside(first, 'left');
+  const lfill = lb.next && framed(lb.next.i) ? 0 : lb.fillers;
+  const lscribe = lb.next ? 0 : scribe(p, p.cabinets[first], 'left');
+  frame.stiles.push({ x0: p.cabinets[first].x - lfill - lscribe, x1: ox(first, built[first].cabinet.frame.left), owner: first, end: true });
+  chain.forEach((i, k) => {
+    const f = built[i].cabinet.frame;
+    for (const r of built[i].cabinet.parts.filter((q) => q.role === 'frameRail')) {
+      frame.rails.push({ x0: ox(i, r.bbox.min[0]), x1: ox(i, r.bbox.min[0] + r.bbox.size[0]), y0: p.cabinets[i].elevation + r.bbox.min[1], y1: p.cabinets[i].elevation + r.bbox.min[1] + r.bbox.size[1], name: r.name, owner: i });
+    }
+    for (const o of f.openings) frame.openings.push({ x0: ox(i, o.x0), x1: ox(i, o.x1), y0: p.cabinets[i].elevation + o.y0, y1: p.cabinets[i].elevation + o.y1, owner: i });
+    const next = chain[k + 1];
+    if (next != null) {
+      frame.stiles.push({ x0: ox(i, f.right), x1: ox(next, built[next].cabinet.frame.left), owner: i, end: false });
+      return;
+    }
+    // Right end: fillers past it go to this frame's stile.
+    const rb = beside(i, 'right');
+    const rscribe = rb.next ? 0 : scribe(p, p.cabinets[i], 'right');
+    frame.stiles.push({ x0: ox(i, f.right), x1: p.cabinets[i].x + p.cabinets[i].width + rb.fillers + rscribe, owner: i, end: true });
+  });
+  return frame;
+}
+
+/** Adds each face frame's stiles to the cabinets that own them (the one on
+ *  their left, or the first), with where the rails meet them. */
+function joinFrames(p, built) {
+  for (const fr of faceFrames(p, built)) {
+    for (const st of fr.stiles) {
+      const spec = p.cabinets[st.owner];
+      const cab = built[st.owner].cabinet;
+      const c = specConstruction(p, spec);
+      const f = cab.frame;
+      const rails = fr.rails.filter((r) => Math.abs(r.x1 - st.x0) < TOUCH || Math.abs(r.x0 - st.x1) < TOUCH);
+      cab.parts.push({
+        name: 'Stile',
+        role: 'frameStile',
+        material: 'frame',
+        solid: true,
+        woodId: fr.wood?.id ?? null,
+        length: f.top - f.bottom,
+        width: st.x1 - st.x0,
+        thickness: f.thickness,
+        edges: { l1: false, l2: false, w1: false, w2: false },
+        bbox: box([st.x0 - spec.x, f.bottom, f.z], [st.x1 - st.x0, f.top - f.bottom, f.thickness]),
+        ops: [],
+        // Where rails meet it, along its length from the bottom, and on which edge.
+        joints: rails.map((r) => ({ y0: r.y0 - fr.bottom, y1: r.y1 - fr.bottom, edge: Math.abs(r.x1 - st.x0) < TOUCH ? 'left' : 'right' })),
+        joint: { type: c.faceFrame.joinery, tenon: c.faceFrame.joinery === 'mortise' ? c.faceFrame.tenon : 0, dowels: c.faceFrame.joinery === 'dowel' ? c.faceFrame.dowels : 0, dowelDiameter: c.faceFrame.dowelDiameter },
+      });
+    }
+  }
 }
 
 // ---- plinths across a run ----------------------------------------------------

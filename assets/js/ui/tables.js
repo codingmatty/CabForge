@@ -1,7 +1,7 @@
 // Parts table for the selected cabinet and the whole-job cut list.
 
 import { cutListCsv } from '../engine/cutlist.js';
-import { fmtMm, partMaterial } from '../engine/model.js';
+import { fmtMm, partStock } from '../engine/model.js';
 import { PART_GROUPS, edgeCode, partGroup } from '../engine/part.js';
 import { projectCutList } from '../engine/project.js';
 import { download, h, mount } from './dom.js';
@@ -47,7 +47,7 @@ export function renderPartsTable(container) {
       h('td', {}, p.name),
       [p.length, p.width].map((v) => h('td', { class: 'num' }, fmtLen(v))),
       h('td', { class: 'num' }, fmtMm(p.thickness)),
-      h('td', {}, partMaterial(c, p)?.name ?? ''),
+      h('td', {}, partStock(c, p)?.name ?? ''),
       h('td', {}, edgeCode(p.edges)),
       h('td', { class: 'num' }, p.ops.length),
     );
@@ -142,5 +142,54 @@ export function renderCutList(container) {
         ),
       ),
     ),
+    list.solid.length ? solidTable(list) : null,
   );
+}
+
+/** Face frame stiles and rails: solid wood, cut to size (not nested). */
+function solidTable(list) {
+  return [
+    h('h3', {}, 'Face frames (solid wood)'),
+    h(
+      'div',
+      { class: 'totals' },
+      list.woods.map((w) => h('div', {}, h('b', {}, `${w.boardFeet.toFixed(1)} bd ft`), `${w.name} · ${w.parts} parts, ${w.quarters}/4 with ${w.waste}% waste`)),
+    ),
+    h(
+      'table',
+      {},
+      h(
+        'thead',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { class: 'num' }, 'Qty'),
+          h('th', {}, 'Part'),
+          h('th', {}, 'Wood'),
+          ['Length', 'Width', isImperial() ? 'Thick (mm)' : 'Thick'].map((t) => h('th', { class: 'num' }, t)),
+          h('th', {}, 'Joinery'),
+          h('th', {}, 'Cabinets'),
+        ),
+      ),
+      h(
+        'tbody',
+        {},
+        list.solid.map((r) =>
+          h(
+            'tr',
+            {},
+            h('td', { class: 'num' }, r.qty),
+            h('td', {}, r.name),
+            h('td', {}, r.wood),
+            [r.length, r.width].map((v) => h('td', { class: 'num' }, fmtLen(v))),
+            h('td', { class: 'num' }, fmtMm(r.thickness)),
+            h('td', {}, r.joinery),
+            h('td', {}, r.cabinets.join(', ')),
+          ),
+        ),
+      ),
+    ),
+    h('p', { class: 'muted' }, 'Rail lengths include any tenons. Stiles run the full height of the frame; rails go between them.'),
+  ];
 }

@@ -1,6 +1,6 @@
 # CabForge
 
-Parametric 32mm (frameless / Euro) cabinet design in the browser. Plain PHP and JavaScript,
+Parametric 32mm cabinet design in the browser: frameless (Euro) or face frame, with overlay or inset fronts. Plain PHP and JavaScript,
 no external libraries, no build step.
 
 ## Screenshots
@@ -154,7 +154,8 @@ Edge banding; Machining: CNC router), each page a column of setting groups that 
   the top on wall/tall cabinets; on base cabinets into the bottom only (butt joint at the stretchers).
 - 32mm system: 5mm holes on lines 37mm from the front (plus a rear line), grid origin at half the
   case thickness.
-- Full-overlay fronts: 1.5mm side/top reveals, 3mm gaps. Doors switch to a pair above 600mm.
+- Full-overlay fronts (frameless; see Cabinet styles for inset and face frames): 1.5mm side/top reveals, 3mm gaps.
+  Doors switch to a pair above 600mm.
 - Fronts per cabinet: a stack of sections, top to bottom, each a **Door** (auto, 1 or 2), a **Drawer** or
   **Open**, in any order (drawer / drawer / door / drawer, door over drawer for a tall upper standing on the
   countertop…). Each takes a size in drawer units, a custom height, or fills what the sized ones leave (several
@@ -208,6 +209,47 @@ Edge banding; Machining: CNC router), each page a column of setting groups that 
   height) each one takes (5–7 units 100mm, 8–12 units 200mm by default). In the cabinet dialog each
   drawer picks a size; units left over stay open at the bottom (**Bottom drawer fills** takes them up).
   A drawer-over-doors drawer can be set in units too.
+
+## Cabinet styles and face frames
+
+- **Cabinet style** (Settings → Cabinet style, for the job; any cabinet can pick its own under its ⚙ → Style & frame):
+  **Frameless, overlay fronts** (the default and how CabForge always worked), **Frameless, inset fronts**,
+  **Face frame, inset fronts** or **Face frame, overlay fronts**. Changing the style (or the rails or reveals) refits
+  drawer stacks sized in units to the room the new style leaves, and changing back restores them.
+- **Inset fronts** sit in the case (frameless) or the frame opening (face frame), flush with its face, with a 3/32″
+  gap all round. Frameless inset moves shelves, dividers, drawer boxes and slides back by the front thickness, and
+  bores the hinge plates on the 32mm line measured from the back of the door.
+- **Face frames** are solid wood (Settings → **Solid wood**: species, thickness, rough stock in quarters, $/bd ft,
+  waste %), 3/4″ hard maple by default. Stiles are flush with the inside of the case, so slides and hinges need no
+  spacers: 1 1/2″ where two cases meet (both sides), wider over a filler (fillers become stile width in face-frame
+  jobs), and a side plus a 1/4″ **scribe** at the open end of a run along a wall (the layout leaves room for it).
+  Rails run between the stiles: a 1 1/2″ top rail, a 1 1/2″ bottom rail whose top is flush with the top of the case
+  bottom (the bottom is raised to meet it) and 1″ rails between fronts. No middle stile: pairs of doors meet in the
+  middle. Overlay fronts lap 1/2″ onto the frame, and half of a middle rail less the gap between two fronts.
+- Frames are **continuous** along a run (one frame, a shared stile at each joint) and break automatically at
+  appliance spaces, frameless cabinets and wherever the frame's top, bottom or face changes (a tall beside a base);
+  ⚙ → Style & frame → **Break the frame after this cabinet** splits one by hand. Unticking "One frame along a run"
+  gives each cabinet its own frame.
+- **Joints** (a setting): pocket screws (rails cut to the opening), mortise and tenon (rails longer by the tenon
+  at each end) or dowels / dominos. Part drawings show the pocket holes, tenons, mortises or dowels, and where the
+  rails meet each stile.
+- Face frame parts get their own section of the **Cut list** (and its CSV) and are not nested or sent to the CNC.
+  **Materials** counts board feet of rough stock (length × width × quarters ÷ 4, in inches, ÷ 144, plus waste) at the
+  price per board foot. Frames are painted with the "Face frames" paint group, and case front edges behind a frame
+  are not edge banded. The **Face frames** view (shown in jobs that have one) draws each frame from the front:
+  every stile and rail, the opening sizes and the stile widths, ready to print.
+- **Hinges** for the inset and face-frame styles (Settings → Hinges, below the frameless overlay hinge): **Fill in
+  from** Blum or Salice sets each style's hinge from that maker's catalogue (Blum CLIP top 110° inset 71B3790 and
+  Compact 38N 1/2″ overlay, 13mm cups bored at 3mm; Salice Silentia 105° inset and Excenthree 1/2″ overlay, 11–11.5mm
+  cups at 3mm and 2.5mm), each then editable. **These numbers come from published dealer listings: check them
+  against the hinge instructions before boring doors.** Inset styles can use **butt / knife hinges** instead: nothing
+  is bored, the door drawing marks each mortise, and they are counted and priced on the Materials report.
+- **Blind corners** (+ Blind base, + Blind wall) stand at the end of a wall and run into the corner; the next wall's
+  run starts in front of them. The blind part (the next wall's cabinet depth and fronts plus a 2″ clearance,
+  Settings → Corner cabinets; each can change its own) is covered by a wide stile, or a blind panel in frameless
+  jobs. Face-frame jobs offer blind corners in place of the L and 45° corner cabinets, which stay frameless.
+- The AI chat knows the styles: it can change the job's style and face frame settings, a cabinet's own style or
+  frame break, and add blind corners.
 
 ## Room, corners and islands
 

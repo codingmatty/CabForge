@@ -643,7 +643,18 @@ tbody tr.dim td:not(.eye) { opacity: 0.45; }
 .supply-table td.muted-cell { color: var(--muted); white-space: normal; }
 .supply-note { margin-top: 14px; font-size: 12px; }
 
+/* Face frames view */
+.frame-card { margin: 0 0 22px; }
+.frame-card h3 { margin: 6px 0 2px; }
+.frame-drawing { width: 100%; max-height: 60vh; display: block; }
+
 @media print {
+  body.print-frames .topbar, body.print-frames .sidebar, body.print-frames .tabs, body.print-frames .bottom, body.print-frames .supply-actions { display: none !important; }
+  body.print-frames .app, body.print-frames .workspace { display: block; height: auto; }
+  body.print-frames .view { overflow: visible; background: none; }
+  body.print-frames .view > .pane.nesting { display: none !important; }
+  body.print-frames .view > .pane.frames { display: block !important; position: static; overflow: visible; }
+  body.print-frames .frame-card { break-inside: avoid; }
   body.print-supplies .view > .pane.nesting { display: none !important; }
   body.print-supplies .view > .pane.supplies { display: block !important; position: static; overflow: visible; }
   body.print-supplies .supply-actions { display: none; }

@@ -4,8 +4,13 @@
 
 import { cornerDoors, cornerLegs } from '../engine/corner.js';
 import {
+  CABINET_STYLES,
   DIVIDERS,
+  JOINERY,
   SECTION_TYPES,
+  blindDepth,
+  isFaceFrame,
+  isInset,
   FRONT_STYLES,
   SLOT_LABELS,
   SPACE_PRESETS,
@@ -28,7 +33,7 @@ import {
   toeHeight,
   unitFrontHeight,
 } from '../engine/model.js';
-import { atOf, baseSource, jobFor, standOff, placeAfter, placedAfter, relayout, resizeCabinet, runNeighbours } from '../engine/project.js';
+import { atOf, baseSource, jobFor, standOff, placeAfter, placedAfter, refitFronts, relayout, resizeCabinet, runNeighbours } from '../engine/project.js';
 import { locations } from '../engine/room.js';
 import { checkboxField, h, lenField, lenInput, mount, numField, selectField, sizeReference, textField } from './dom.js';
 import { fmtLen, fmtLenU, isImperial, unitName } from '../engine/units.js';
@@ -433,10 +438,25 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  *  filler's base: its cabinet's). */
 function setOverride(path, value) {
   const baseline = jobFor(state.project, state.selected);
-  editCabinet((spec) => {
+  changeOverrides((o) => {
+    if (same(value, getPath(baseline, path))) deletePath(o, path);
+    else setPath(o, path, value);
+  });
+}
+
+/** Changes the selected cabinet's overrides; a change that moves its fronts
+ *  (style, rails, reveals) refits its drawer-unit stack (refitFronts). */
+function changeOverrides(fn) {
+  const i = state.selected;
+  updateProject((p) => {
+    const spec = p.cabinets[i];
+    if (!spec) return;
+    const before = structuredClone(spec.overrides ?? {});
     spec.overrides ??= {};
-    if (same(value, getPath(baseline, path))) deletePath(spec.overrides, path);
-    else setPath(spec.overrides, path, value);
+    fn(spec.overrides);
+    refitFronts(p, p.construction, i, before);
+    // A style change can change the scribe and so where the run starts.
+    relayout(p);
   });
 }
 
@@ -466,7 +486,7 @@ function overrideField(spec, label, path, control, { wide = false } = {}) {
               'aria-label': `Reset ${label} to the job setting`,
               onclick: (e) => {
                 e.preventDefault();
-                editCabinet((spec) => deletePath(spec.overrides ?? {}, path));
+                changeOverrides((o) => deletePath(o, path));
               },
             },
             '↺',
@@ -613,6 +633,76 @@ function endPanelOverrides(spec, c, field) {
   ]);
 }
 
+function styleOverrides(spec, c, field) {
+  if (spec.kind === 'filler' || spec.kind === 'space' || spec.panel) return null;
+  const ff = isFaceFrame(c);
+  return section(
+    'Cabinet style',
+    [
+      field('Style', 'cabinetStyle', selectControl(Object.entries(CABINET_STYLES)), { wide: true }),
+      isInset(c) ? field('Gap around inset fronts', 'insetGap', numberControl()) : null,
+      c.cabinetStyle === 'faceFrameOverlay' ? field('Overlay onto the frame', 'frameOverlay', numberControl()) : null,
+      ff
+        ? [
+            field('Top rail', 'faceFrame.topRail', numberControl(10)),
+            field('Bottom rail', 'faceFrame.bottomRail', numberControl(10)),
+            field('Rails between fronts', 'faceFrame.midRail', numberControl(5)),
+            field('Joints', 'faceFrame.joinery', selectControl(Object.entries(JOINERY))),
+            field('Wood', 'faceFrame.wood', selectControl((state.project.construction.woods ?? []).map((w) => [w.id, w.name]), Number)),
+          ]
+        : null,
+    ],
+    spec.corner && ff ? 'Corner cabinets (L and 45°) are built frameless; use a blind corner in a face-frame run.' : null,
+  );
+}
+
+/** The face frame break after this cabinet, and a blind corner's blind part. */
+function frameSection(c) {
+  const con = effectiveConstruction(jobFor(state.project, state.selected), c.overrides);
+  const ff = isFaceFrame(con) && !c.corner;
+  const blind = c.blind
+    ? [
+        lenField('Blind part', 'blindWidth', c.blind.width, (v) =>
+          updateProject((p) => {
+            const spec = p.cabinets[state.selected];
+            spec.blind = { ...spec.blind, width: Math.max(0, v) };
+            relayout(p);
+          }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            title: "The next wall's cabinet depth and fronts plus the clearance (Settings → Corner cabinets)",
+            onclick: () =>
+              updateProject((p) => {
+                const spec = p.cabinets[state.selected];
+                spec.blind = { ...spec.blind, width: Math.round(blindDepth(effectiveConstruction(jobFor(p, state.selected), spec.overrides), spec.kind)) };
+                relayout(p);
+              }),
+          },
+          'Size from the next wall',
+        ),
+      ]
+    : null;
+  const fields = [
+    ff
+      ? checkboxField('Break the frame after this cabinet', 'frameBreak', !!c.frameBreak, (on) =>
+          editCabinet((spec) => {
+            if (on) spec.frameBreak = true;
+            else delete spec.frameBreak;
+          }),
+        )
+      : null,
+    blind,
+  ];
+  const notes = [
+    ff ? 'The face frame runs on into the next cabinet unless it breaks here; each side of a break gets its own stile.' : null,
+    c.blind ? `The blind part, from the corner end, is covered by ${ff ? 'a wide stile' : 'a blind panel'}; the next wall's cabinets stand in front of it.` : null,
+  ].filter(Boolean);
+  return section(c.blind ? 'Blind corner' : 'Face frame', fields, notes.join(' ') || null);
+}
+
 const OVERRIDE_NOTE = 'These start from the job settings (gear button); a change applies to this cabinet only, is highlighted and has a ↺ reset.';
 
 /**
@@ -623,6 +713,7 @@ const OVERRIDE_NOTE = 'These start from the job settings (gear button); a change
 const CABINET_PAGES = [
   { id: 'size', label: 'Size & position', own: (c) => [sizeSection(c), c.corner ? cornerSection(c) : null] },
   { id: 'fronts', label: 'Fronts & shelves', own: (c) => [c.corner ? cornerShelves(c) : frontsSection(c)], overrides: [revealsSection, frontStyleOverrides, drawerOverrides], paths: ['reveals', 'frontStyle', 'shaker', 'slide', 'drawerBottomRaise'] },
+  { id: 'style', label: 'Style & frame', own: (c) => [frameSection(c)], overrides: [styleOverrides], paths: ['cabinetStyle', 'insetGap', 'frameOverlay', 'faceFrame'] },
   { id: 'case', label: 'Case & base', overrides: [backSection, baseSection], paths: ['back', 'plinth', 'toeKickHeight', 'toeKickSetback', 'toeKickCover', 'stretcherWidth'] },
   { id: 'materials', label: 'Materials', overrides: [materialsSection], paths: ['materials'] },
   { id: 'endPanels', label: 'End panels', own: (c) => [endPanelSwitches(c)], overrides: [endPanelOverrides], paths: ['endPanel'], when: (spec) => !spec.corner },

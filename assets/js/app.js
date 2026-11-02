@@ -6,6 +6,7 @@ import { renderChat } from './ui/chat.js';
 import { renderCnc } from './ui/cnc.js';
 import { download, gearIcon, h } from './ui/dom.js';
 import { renderElevation } from './ui/elevation.js';
+import { hasFaceFrames, renderFrames } from './ui/frames.js';
 import { renderNesting } from './ui/nesting.js';
 import { renderPartView } from './ui/partview.js';
 import { renderPlan } from './ui/plan.js';
@@ -23,6 +24,7 @@ const VIEWS = [
   ['plan', 'Plan'],
   ['elevation', 'Elevation'],
   ['part', 'Part drawing'],
+  ['frames', 'Face frames'],
   ['cutlist', 'Cut list'],
   ['nesting', 'Nesting'],
   ['cnc', 'CNC'],
@@ -75,6 +77,7 @@ const panes = {
   plan: h('div', { class: 'pane plan-pane' }),
   elevation: h('div', { class: 'pane' }),
   part: h('div', { class: 'pane part' }),
+  frames: h('div', { class: 'pane scroll frames' }),
   cutlist: h('div', { class: 'pane scroll' }),
   nesting: h('div', { class: 'pane scroll nesting' }),
   cnc: h('div', { class: 'pane scroll cnc' }),
@@ -124,8 +127,11 @@ function render(opts) {
   status.className = `save-status ${state.saveStatus}`;
   status.title = state.saveError ? `${state.saveError} — will retry` : '';
 
+  // The Face frames tab only shows in jobs that have one.
+  const frames = hasFaceFrames(state.built);
   VIEWS.forEach(([id], i) => {
     tabButtons[i].className = state.view === id ? 'active' : '';
+    tabButtons[i].hidden = id === 'frames' && !frames && state.view !== 'frames';
     panes[id].hidden = state.view !== id;
   });
 
@@ -139,6 +145,7 @@ function render(opts) {
   if (state.view === 'plan') renderPlan(panes.plan);
   if (state.view === 'elevation') renderElevation(panes.elevation);
   if (state.view === 'part') renderPartView(panes.part);
+  if (state.view === 'frames') renderFrames(panes.frames);
   if (state.view === 'cutlist') renderCutList(panes.cutlist);
   if (state.view === 'nesting') renderNesting(panes.nesting);
   if (state.view === 'cnc') renderCnc(panes.cnc);

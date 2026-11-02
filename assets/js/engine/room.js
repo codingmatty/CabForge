@@ -25,7 +25,7 @@
 // back (past the back row's fronts on a back-to-back island), `ends` its
 // overhang past both ends.
 
-import { thickness } from './model.js';
+import { frontProjection } from './model.js';
 
 export const TURNS = { inside: 'Inside corner', outside: 'Outside corner' };
 export const ISLAND_TYPES = { single: 'Single run', double: 'Back to back' };
@@ -119,7 +119,7 @@ export function locationOf(p, spec) {
  *  base when it has none yet). */
 function rowDepth(p, id) {
   const c = p.construction;
-  const front = c ? thickness(c, 'front') : 0;
+  const front = c ? frontProjection(c) : 0;
   const depths = p.cabinets.filter((s) => s.at === id).map((s) => s.depth);
   return (depths.length ? Math.max(...depths) : (c?.cabinetSizes?.base?.depth ?? 600)) + front;
 }

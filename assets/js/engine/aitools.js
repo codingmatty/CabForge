@@ -7,12 +7,17 @@ import { cornerDoors, newCorner } from './corner.js';
 import { countertops } from './countertop.js';
 import {
   CABINET_KINDS,
+  CABINET_STYLES,
+  HINGE_BRANDS,
+  JOINERY,
+  applyHingeBrand,
   DIVIDERS,
   FRONT_STYLES,
   SECTION_TYPES,
   SLOTS,
   SPACE_PRESETS,
   frontSections,
+  newBlindCorner,
   newCabinet,
   newFiller,
   newPanel,
@@ -20,7 +25,7 @@ import {
   newSpace,
   runOf,
 } from './model.js';
-import { addCabinet, atOf, insertCabinet, moveCabinet, projectCutList, relayout, resizeCabinet } from './project.js';
+import { addCabinet, atOf, insertCabinet, moveCabinet, projectCutList, refitFronts, relayout, resizeCabinet } from './project.js';
 import { ISLAND_TYPES, TURNS, addIsland, addWall, locationById, locations, removeLocation } from './room.js';
 import { supplies } from './supplies.js';
 import { fmtLen, fmtMm, isImperial, parseLen, unitName } from './units.js';
@@ -103,6 +108,7 @@ function frontsText(spec) {
 
 function kindText(spec) {
   if (spec.corner) return `corner ${spec.kind} (${spec.corner.type === 'L' ? 'L' : 'diagonal'})`;
+  if (spec.blind) return `blind corner ${spec.kind} (blind part ${fmtLen(spec.blind.width)})`;
   if (spec.panel) return `panel (${spec.run} run)`;
   if (spec.kind === 'filler') return `filler (${spec.run} run)`;
   if (spec.kind === 'space') return `${spec.preset ?? 'space'} space (${spec.run} run)`;
@@ -113,7 +119,7 @@ function kindText(spec) {
 
 /** The job as compact text for the model, lengths in the display units. */
 export function layoutSummary(p, built = []) {
-  const lines = [`Units: ${isImperial() ? 'inches' : 'mm'}. Room height ${fmtLen(p.room?.height ?? 2400)}.`];
+  const lines = [`Units: ${isImperial() ? 'inches' : 'mm'}. Room height ${fmtLen(p.room?.height ?? 2400)}. Cabinet style: ${CABINET_STYLES[p.construction.cabinetStyle] ?? p.construction.cabinetStyle}.`];
   for (const loc of locations(p)) {
     const where =
       loc.kind === 'wall'
@@ -127,9 +133,11 @@ export function layoutSummary(p, built = []) {
         const err = built[i]?.error ? `  ERROR: ${built[i].error}` : '';
         const ends = spec.endPanels && (spec.endPanels.left || spec.endPanels.right) ? `, end panels ${['left', 'right'].filter((s) => spec.endPanels[s]).join('+')}` : '';
         const fronts = frontsText(spec);
+        const own = spec.overrides?.cabinetStyle ? `, style ${spec.overrides.cabinetStyle}` : '';
+        const brk = spec.frameBreak ? ', face frame breaks after it' : '';
         lines.push(
           `  [${run}] id ${spec.id} "${spec.name}" ${kindText(spec)}: x ${fmtLen(spec.x)}, ${fmtLen(spec.width)} W × ${fmtLen(spec.height)} H × ${fmtLen(spec.depth)} D` +
-            `${spec.elevation ? `, ${fmtLen(spec.elevation)} off the floor` : ''}${ends}${fronts ? `; fronts ${fronts}` : ''}${err}`,
+            `${spec.elevation ? `, ${fmtLen(spec.elevation)} off the floor` : ''}${ends}${own}${brk}${fronts ? `; fronts ${fronts}` : ''}${err}`,
         );
       }
     }
@@ -156,6 +164,7 @@ function settingsSummary(c) {
     `Base (toe kick): ${c.plinth}, height ${fmtLen(c.toeKickHeight)}, setback ${fmtLen(c.toeKickSetback)}.`,
     `Front style ${c.frontStyle}${c.frontStyle === 'shaker' ? ` (frame ${fmtLen(c.shaker.frame)})` : ''}; reveals side ${fmtLen(c.reveals.side)}, gap ${fmtLen(c.reveals.gap)}, top ${fmtLen(c.reveals.top)}, bottom ${fmtLen(c.reveals.bottom)}; doors wider than ${fmtLen(c.maxSingleDoorWidth)} become pairs.`,
     `Back joint ${c.back.type}; stretchers ${fmtLen(c.stretcherWidth)}.`,
+    `Cabinet style ${c.cabinetStyle}; inset gap ${fmtLen(c.insetGap)}, face-frame overlay ${fmtLen(c.frameOverlay)}. Face frames: top rail ${fmtLen(c.faceFrame.topRail)}, bottom rail ${fmtLen(c.faceFrame.bottomRail)}, rails between fronts ${fmtLen(c.faceFrame.midRail)}, scribe ${fmtLen(c.faceFrame.scribe)}, ${c.faceFrame.continuous ? 'continuous along runs' : 'one per cabinet'}, ${c.faceFrame.joinery} joints, wood ${(c.woods ?? []).find((w) => w.id === c.faceFrame.wood)?.name ?? '?'}. Hinges from ${c.hingeBrand}.`,
     `Countertop ${c.countertop.enabled ? `on: ${fmtLen(c.countertop.thickness)} thick, ${fmtLen(c.countertop.frontOverhang)} front overhang, ${fmtLen(c.countertop.endOverhang)} end overhang` : 'off'}.`,
     `End panels: ${fmtLen(c.endPanel.frontOverhang)} front overhang, ${fmtLen(c.endPanel.rearScribe)} rear scribe.`,
     `Drawer unit ${fmtMm(c.drawerUnit)} mm.`,
@@ -204,6 +213,17 @@ const SETTINGS = {
   'endPanel.rearScribe': 'len',
   'endPanel.floorScribe': 'len',
   'shaker.frame': 'len',
+  insetGap: 'len',
+  frameOverlay: 'len',
+  'faceFrame.topRail': 'len',
+  'faceFrame.bottomRail': 'len',
+  'faceFrame.midRail': 'len',
+  'faceFrame.scribe': 'len',
+  'faceFrame.tenon': 'len',
+  cabinetStyle: Object.keys(CABINET_STYLES),
+  'faceFrame.joinery': Object.keys(JOINERY),
+  hingeBrand: Object.keys(HINGE_BRANDS),
+  'faceFrame.continuous': 'bool',
   // Choices.
   plinth: ['frame', 'board', 'sides', 'none'],
   frontStyle: Object.keys(FRONT_STYLES),
@@ -252,7 +272,7 @@ function settingValue(c, path, v) {
 
 // ---- the tools -----------------------------------------------------------------
 
-const KINDS = ['base', 'wall', 'tall', 'corner_base', 'corner_wall'];
+const KINDS = ['base', 'wall', 'tall', 'corner_base', 'corner_wall', 'blind_base', 'blind_wall'];
 const ITEMS = ['filler', 'panel', ...Object.keys(SPACE_PRESETS)];
 
 const FRONTS_SCHEMA = {
@@ -336,11 +356,14 @@ export const AI_TOOLS = [
   {
     name: 'update_cabinet',
     mutates: true,
-    description: 'Changes a cabinet, filler or space: name, size, elevation, fronts, end panels. Widening pushes the cabinets after it along.',
+    description: 'Changes a cabinet, filler or space: name, size, elevation, fronts, end panels, its own cabinet style, a face frame break after it, a blind corner\'s blind part. Widening pushes the cabinets after it along.',
     schema: {
       type: 'object',
       properties: {
         id: { type: 'integer' },
+        style: { type: 'string', enum: ['job', ...Object.keys(CABINET_STYLES)], description: 'This cabinet\'s style; "job" follows the job setting.' },
+        frame_break: { type: 'boolean', description: 'Face frames: break the frame after this cabinet.' },
+        blind_width: { ...LEN, description: 'Blind corners: the blind part of the front, from the corner end. ' + LEN.description },
         name: { type: 'string' },
         width: LEN,
         height: LEN,
@@ -447,12 +470,12 @@ export function runTool(p, built, name, input = {}) {
       if (!KINDS.includes(input.kind)) fail(`kind must be one of ${KINDS.join(', ')}.`);
       const at = locationId(p, input.at);
       const c = p.construction;
-      const spec = input.kind.startsWith('corner_') ? newCorner(input.kind.slice(7), 0, c) : newCabinet(input.kind, 0, c);
+      const spec = input.kind.startsWith('corner_') ? newCorner(input.kind.slice(7), 0, c) : input.kind.startsWith('blind_') ? newBlindCorner(input.kind.slice(6), 0, c) : newCabinet(input.kind, 0, c);
       if (input.fronts && !spec.corner) spec.fronts = { type: 'stack', sections: frontsFrom(input.fronts, spec) };
       if (input.end_panels) spec.endPanels = { left: !!input.end_panels.left, right: !!input.end_panels.right };
       const index = place(p, spec, at, input.after_id);
       if (input.name) spec.name = String(input.name).slice(0, 60);
-      else spec.name = `${input.kind.startsWith('corner_') ? `Corner ${spec.kind}` : CABINET_KINDS[spec.kind].label} ${spec.id}`;
+      else spec.name = `${input.kind.startsWith('corner_') ? `Corner ${spec.kind}` : spec.blind ? `Blind corner ${spec.kind}` : CABINET_KINDS[spec.kind].label} ${spec.id}`;
       applySize(p, index, input);
       relayout(p);
       return { result: `Added ${label(spec)} at ${atOf(p, spec)}.`, change: `Added ${spec.name} (${fmtLen(spec.width)})` };
@@ -482,6 +505,22 @@ export function runTool(p, built, name, input = {}) {
       }
       if (input.end_panels) spec.endPanels = { left: !!input.end_panels.left, right: !!input.end_panels.right };
       if (input.name) spec.name = String(input.name).slice(0, 60);
+      if (input.style != null) {
+        if (input.style !== 'job' && !CABINET_STYLES[input.style]) fail(`style must be job or one of ${Object.keys(CABINET_STYLES).join(', ')}.`);
+        const was = structuredClone(spec.overrides ?? {});
+        spec.overrides ??= {};
+        if (input.style === 'job' || input.style === p.construction.cabinetStyle) delete spec.overrides.cabinetStyle;
+        else spec.overrides.cabinetStyle = input.style;
+        refitFronts(p, p.construction, index, was);
+      }
+      if (input.frame_break != null) {
+        if (input.frame_break) spec.frameBreak = true;
+        else delete spec.frameBreak;
+      }
+      if (input.blind_width != null) {
+        if (!spec.blind) fail(`${spec.name} is not a blind corner.`);
+        spec.blind = { ...spec.blind, width: length(input.blind_width, 'blind_width', { min: 0, max: 2000 }) };
+      }
       applySize(p, index, input);
       relayout(p);
       const after = `${fmtLen(spec.width)} × ${fmtLen(spec.height)} × ${fmtLen(spec.depth)}`;
@@ -522,10 +561,14 @@ export function runTool(p, built, name, input = {}) {
       const changes = Array.isArray(input.changes) ? input.changes : fail('changes must be a list of {path, value}.');
       // Check every change before applying any.
       const values = changes.map((ch) => [ch.path, settingValue(p.construction, ch.path, ch.value)]);
+      const before = structuredClone(p.construction);
       for (const [path, v] of values) {
         if (path === 'back.type') p.construction.back = v === undefined ? { type: 'dado', depth: 6 } : { type: 'butt' };
+        else if (path === 'hingeBrand') applyHingeBrand(p.construction, v);
         else setPath(p.construction, path, v);
       }
+      // A style, rail or reveal change refits drawer stacks sized in units.
+      refitFronts(p, before);
       relayout(p);
       const names = values.map(([path]) => path).join(', ');
       return { result: `Updated ${names}.`, change: `Settings: ${names}` };
@@ -603,7 +646,7 @@ function updateRoom(p, input) {
 export function systemPrompt() {
   const units = unitName() === 'in' ? 'inches (fractions like 23 1/2", feet and inches over 36")' : 'millimetres';
   return [
-    'You are the design assistant in CabForge, a frameless (32mm system) cabinet design app for a cabinet shop.',
+    'You are the design assistant in CabForge, a cabinet design app for a cabinet shop (32mm system cases).',
     'You lay out and change kitchen and built-in cabinet jobs with the tools, and answer questions about the job.',
     '',
     'How the job works:',
@@ -612,6 +655,7 @@ export function systemPrompt() {
     '- Base and tall heights include the toe kick. Depth is the case without doors. Wall cabinets hang at their elevation.',
     '- Fronts are sections from the top down: doors, drawers (sized in drawer units) or open; a drawer bank is several drawer sections.',
     '- Fillers close gaps at walls; spaces (dishwasher, range, fridge) keep room for appliances. Corner cabinets go at the end of a wall and return along the next one.',
+    '- Cabinet styles (setting cabinetStyle, or one cabinet\'s style with update_cabinet): frameless (overlay fronts), framelessInset, faceFrameInset, faceFrameOverlay. Face frames are solid wood, continuous along a run; a filler becomes a wider stile; frame_break splits a frame after a cabinet. In face-frame jobs use blind corners (blind_base, blind_wall) at the end of a wall instead of the L and diagonal corners. Changing the style refits drawer stacks in units.',
     `- The shop works in ${units}. Give every length you pass to a tool with its unit, and talk to the user in these units.`,
     '',
     'How to work:',

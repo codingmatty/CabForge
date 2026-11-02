@@ -3,7 +3,7 @@
 // construction. New cabinets go to the current wall or island.
 
 import { newCorner } from '../engine/corner.js';
-import { DEFAULT_FILLER_WIDTH, SPACE_PRESETS, fmtMm, newCabinet, newFiller, newPanel, newSpace, runOf } from '../engine/model.js';
+import { DEFAULT_FILLER_WIDTH, SPACE_PRESETS, fmtMm, isFaceFrame, newBlindCorner, newCabinet, newFiller, newPanel, newSpace, runOf } from '../engine/model.js';
 import { addCabinet, atOf, insertCabinet, moveCabinet, relayout } from '../engine/project.js';
 import { addWall, locations } from '../engine/room.js';
 import { RUN_LABELS, countOverrides } from './cabinetdialog.js';
@@ -212,8 +212,15 @@ function cabinetList() {
       h('button', { onclick: () => add(newCabinet('base', 0, job())) }, '+ Base'),
       h('button', { onclick: () => add(newCabinet('wall', 0, job())) }, '+ Wall'),
       h('button', { onclick: () => add(newCabinet('tall', 0, job())) }, '+ Tall'),
-      h('button', { onclick: () => add(newCorner('base', 0, job())), title: 'L-shaped corner base for the end of a wall: two doors' }, '+ Corner base'),
-      h('button', { onclick: () => add(newCorner('wall', 0, job())), title: 'Corner wall cabinet for the end of a wall: one 45° door' }, '+ Corner wall'),
+      // Face-frame jobs get blind corners; the L and 45° corners are frameless.
+      isFaceFrame(job())
+        ? null
+        : [
+            h('button', { onclick: () => add(newCorner('base', 0, job())), title: 'L-shaped corner base for the end of a wall: two doors' }, '+ Corner base'),
+            h('button', { onclick: () => add(newCorner('wall', 0, job())), title: 'Corner wall cabinet for the end of a wall: one 45° door' }, '+ Corner wall'),
+          ],
+      h('button', { onclick: () => add(newBlindCorner('base', 0, job())), title: "Blind corner base for the end of a wall: the next wall's cabinets stand in front of its blind end" }, '+ Blind base'),
+      h('button', { onclick: () => add(newBlindCorner('wall', 0, job())), title: "Blind corner wall cabinet for the end of a wall: the next wall's cabinets stand in front of its blind end" }, '+ Blind wall'),
       otherMenu(addOther),
     ),
     h('h3', {}, 'Cabinets'),
